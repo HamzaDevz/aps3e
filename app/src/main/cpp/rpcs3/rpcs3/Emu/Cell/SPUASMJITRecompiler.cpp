@@ -16,11 +16,21 @@
 #include <cmath>
 #include <thread>
 
+#ifdef ARCH_X64
 #define SPU_OFF_128(x, ...) asmjit::x86::oword_ptr(*cpu, offset32(&spu_thread::x, ##__VA_ARGS__))
 #define SPU_OFF_64(x, ...) asmjit::x86::qword_ptr(*cpu, offset32(&spu_thread::x, ##__VA_ARGS__))
 #define SPU_OFF_32(x, ...) asmjit::x86::dword_ptr(*cpu, offset32(&spu_thread::x, ##__VA_ARGS__))
 #define SPU_OFF_16(x, ...) asmjit::x86::word_ptr(*cpu, offset32(&spu_thread::x, ##__VA_ARGS__))
 #define SPU_OFF_8(x, ...) asmjit::x86::byte_ptr(*cpu, offset32(&spu_thread::x, ##__VA_ARGS__))
+#elif defined(ARCH_ARM64)
+#define SPU_OFF_128(x, ...) asmjit::arm::Mem(*cpu, static_cast<int32_t>(offset32(&spu_thread::x, ##__VA_ARGS__)))
+#define SPU_OFF_64(x, ...) asmjit::arm::Mem(*cpu, static_cast<int32_t>(offset32(&spu_thread::x, ##__VA_ARGS__)))
+#define SPU_OFF_32(x, ...) asmjit::arm::Mem(*cpu, static_cast<int32_t>(offset32(&spu_thread::x, ##__VA_ARGS__)))
+#define SPU_OFF_16(x, ...) asmjit::arm::Mem(*cpu, static_cast<int32_t>(offset32(&spu_thread::x, ##__VA_ARGS__)))
+#define SPU_OFF_8(x, ...) asmjit::arm::Mem(*cpu, static_cast<int32_t>(offset32(&spu_thread::x, ##__VA_ARGS__)))
+#endif
+
+
 
 const spu_decoder<spu_recompiler> s_spu_decoder;
 
@@ -98,11 +108,15 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 
 	CodeHolder code;
 	code.init(m_asmrt.environment());
-
+#ifdef ARCH_X64
 	x86::Assembler compiler(&code);
 	compiler.addEncodingOptions(EncodingOptions::kOptimizedAlign);
 	this->c = &compiler;
-
+#elif defined(ARCH_ARM64)
+    a64::Assembler compiler(&code);
+    compiler.addEncodingOptions(EncodingOptions::kOptimizedAlign);
+    this->c = &compiler;
+#endif
 	if (g_cfg.core.spu_debug && !add_loc->logged.exchange(1))
 	{
 		// Dump analyser data
@@ -112,7 +126,7 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 		// Set logger
 		code.setLogger(&logger);
 	}
-
+#if ARCH_X64
 	// Initialize args
 	this->cpu = &x86::r13;
 	this->ls = &x86::rbp;
@@ -132,7 +146,29 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 	this->qw0 = &x86::rdx;
 	this->qw1 = &x86::rcx;
 #endif
+#elif defined(ARCH_ARM64)
+    this->cpu = &a64::x19;
+	this->ls = &a64::x20;
+	this->rip = &a64::x22;
+	this->pc0 = &a64::x21;
+	this->addr = &a64::x9;
+	this->arg0 = &a64::x0;
+	this->arg1 = &a64::x1;
+    this->arg2 = &a64::x2;
+	this->qw0 = &a64::x7;
+	this->qw1 = &a64::x6;
 
+	// Prologue: save callee-saved registers and the link register (48 bytes, 16-byte aligned)
+	// x30 must be preserved across any blr issued inside the generated code, otherwise
+	// the final ret would jump back into the middle of this function.
+	c->sub(a64::sp, a64::sp, asmjit::Imm(48));
+	c->stp(a64::x19, a64::x20, asmjit::arm::Mem(a64::sp));
+	c->stp(a64::x21, a64::x22, asmjit::arm::Mem(a64::sp, 16));
+	c->str(a64::x30, asmjit::arm::Mem(a64::sp, 32));
+#endif
+
+
+#if ARCH_X64
 	const std::array<const x86::Xmm*, 16> vec_vars
 	{
 		&x86::xmm0,
@@ -152,7 +188,44 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 		&x86::xmm14,
 		&x86::xmm15,
 	};
+#elif defined(ARCH_ARM64)
+    const std::array<const a64::VecV*, 32> vec_vars
+    {
+        &a64::v0,
+        &a64::v1,
+        &a64::v2,
+        &a64::v3,
+        &a64::v4,
+        &a64::v5,
+        &a64::v6,
+        &a64::v7,
+        &a64::v8,
+        &a64::v9,
+        &a64::v10,
+        &a64::v11,
+        &a64::v12,
+        &a64::v13,
+        &a64::v14,
+        &a64::v15,
+        &a64::v16,
+        &a64::v17,
+        &a64::v18,
+        &a64::v19,
+        &a64::v20,
+        &a64::v21,
+        &a64::v22,
+        &a64::v23,
+        &a64::v24,
+        &a64::v25,
+        &a64::v26,
+        &a64::v27,
+        &a64::v28,
+        &a64::v29,
+        &a64::v30,
+        &a64::v31,
+    };
 
+#endif
 	for (u32 i = 0; i < vec_vars.size(); i++)
 	{
 		vec[i] = vec_vars[i];
@@ -180,16 +253,28 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 		}
 	}
 
+#if ARCH_X64
 	// Load actual PC and check status
 	c->sub(x86::rsp, 0x28);
 	c->mov(pc0->r32(), SPU_OFF_32(pc));
 	c->cmp(SPU_OFF_32(state), 0);
 	c->jnz(label_stop);
-
-	if ((g_cfg.core.spu_prof || g_cfg.core.spu_debug) && g_cfg.core.spu_verification)
-	{
+#elif defined(ARCH_ARM64)
+	// Load actual PC and check state
+	c->ldr(pc0->w(), SPU_OFF_32(pc));
+	c->ldr(qw0->w(), SPU_OFF_32(state));
+	c->cmp(qw0->w(), asmjit::Imm(0));
+	c->b_ne(label_stop);
+#endif
+    if ((g_cfg.core.spu_prof || g_cfg.core.spu_debug) && g_cfg.core.spu_verification)
+    {
+#if ARCH_X64
 		c->mov(x86::rax, m_hash_start & -0xffff);
 		c->mov(SPU_OFF_64(block_hash), x86::rax);
+#elif defined(ARCH_ARM64)
+		c->mov(*qw0, asmjit::Imm(m_hash_start & -0xffff));
+		c->str(*qw0, SPU_OFF_64(block_hash));
+#endif
 	}
 
 	if (utils::has_avx())
@@ -233,6 +318,7 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 		}
 	}
 
+#if ARCH_X64
 	auto get_pc_ptr = [&]()
 	{
 		// Get data start address
@@ -247,17 +333,30 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 			return x86::qword_ptr(*ls, *pc0);
 		}
 	};
+#endif
+
+    /*
+     *
+#elif defined(ARCH_ARM64)
+		// Compute LS pointer: qw0 = ls + (starta & 0x3fffc)
+		c->mov(*qw0, asmjit::Imm(starta & 0x3fffc));
+		c->add(*qw0, *ls, *qw0);
+		return asmjit::arm::Mem(*qw0);
+     */
 
 	if (!g_cfg.core.spu_verification)
 	{
+#if ARCH_X64
 		// Disable check (unsafe)
 		if (utils::has_avx())
 		{
 			c->vzeroupper();
 		}
+#endif
 	}
 	else if (m_size == 8)
 	{
+#if ARCH_X64
 		c->mov(x86::rax, static_cast<u64>(func.data[1]) << 32 | func.data[0]);
 		c->cmp(x86::rax, x86::qword_ptr(*ls, *pc0));
 		c->jnz(label_diff);
@@ -266,9 +365,17 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 		{
 			c->vzeroupper();
 		}
+#elif defined(ARCH_ARM64)
+		// Load expected 8 bytes and compare
+		c->mov(*qw0, asmjit::Imm(static_cast<u64>(func.data[1]) << 32 | func.data[0]));
+		c->ldr(*qw1, asmjit::arm::Mem(*ls, *pc0));
+		c->cmp(*qw0, *qw1);
+		c->b_ne(label_diff);
+#endif
 	}
 	else if (m_size == 4)
 	{
+#if ARCH_X64
 		c->cmp(x86::dword_ptr(*ls, *pc0), func.data[0]);
 		c->jnz(label_diff);
 
@@ -276,7 +383,15 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 		{
 			c->vzeroupper();
 		}
+#elif defined(ARCH_ARM64)
+		// Load expected 4 bytes and compare
+		c->mov(qw0->w(), asmjit::Imm(func.data[0]));
+		c->ldr(qw1->w(), asmjit::arm::Mem(*ls, *pc0));
+		c->cmp(qw0->w(), qw1->w());
+		c->b_ne(label_diff);
+#endif
 	}
+#if ARCH_X64
 	else if (utils::has_avx512() && false)
 	{
 		// AVX-512 optimized check using 512-bit registers (disabled)
@@ -621,8 +736,10 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 
 		c->vzeroupper();
 	}
+#endif
 	else
 	{
+#if ARCH_X64
 		if (utils::has_avx())
 		{
 			c->vzeroupper();
@@ -749,22 +866,134 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 			c->test(x86::rax, x86::rax);
 			c->jne(label_diff);
 		}
+#elif defined(ARCH_ARM64)
+		// NEON code verification (SSE2 equivalent)
+		words_align = 16;
+
+		// Initialize pointers: qw0 = LS + starta, qw1 = code data
+		c->mov(*qw0, asmjit::Imm(starta & 0x3fffc));
+		c->add(*qw0, *ls, *qw0);
+		c->adr(*qw1, label_code);
+
+		u32 code_off = 0;
+		u32 ls_off = starta;
+
+		const auto& v_acc0 = *vec[0];
+		const auto& v_tmp = *vec[2];
+		const auto& v_idx = *vec[3];
+		const auto& v_exp = *vec[4];
+
+		c->eor(v_acc0.b16(), v_acc0.b16(), v_acc0.b16());
+
+		for (u32 j = starta; j < end; j += 16)
+		{
+			const u32 cmask = get_code_mask(j, j + 16);
+
+			if (cmask == 0) [[unlikely]]
+			{
+				continue;
+			}
+
+			// Advance LS pointer to keep the offset encodable
+			if (j - ls_off >= 256)
+			{
+				c->add(*qw0, *qw0, asmjit::Imm(j - ls_off));
+				ls_off = j;
+			}
+
+			// Advance code pointer if needed
+			if (code_off >= 256)
+			{
+				c->add(*qw1, *qw1, asmjit::Imm(code_off));
+				code_off = 0;
+			}
+
+			// Load 128-bit from LS
+			c->ldr(v_tmp, asmjit::arm::Mem(*qw0, j - ls_off));
+
+			if (cmask != 0xf)
+			{
+				// Byte shuffle to fill holes (equivalent to pshufd): holes repeat highest valid word
+				u8 idx_bytes[16];
+				const u32 highest = 31 - std::countl_zero(cmask);
+				for (u32 w = 0; w < 4; w++)
+				{
+					const u32 src = (cmask & (1u << w)) ? w : highest;
+					for (u32 b = 0; b < 4; b++)
+						idx_bytes[w * 4 + b] = src * 4 + b;
+				}
+
+				// Load shuffle indices into v_idx via addr as temp (qw0 must be preserved as LS pointer)
+				u64 lo = 0, hi = 0;
+				for (u32 i = 0; i < 8; i++) lo |= u64(idx_bytes[i]) << (i * 8);
+				for (u32 i = 0; i < 8; i++) hi |= u64(idx_bytes[8 + i]) << (i * 8);
+
+				c->mov(*addr, asmjit::Imm(lo));
+				c->fmov(v_idx.d(), *addr);
+				c->mov(*addr, asmjit::Imm(hi));
+				c->ins(v_idx.d(1), *addr);
+				c->tbl(v_tmp.b16(), v_tmp.b16(), v_idx.b16());
+			}
+
+			// XOR with expected code data and accumulate
+			c->ldr(v_exp, asmjit::arm::Mem(*qw1, code_off));
+			c->eor(v_tmp.b16(), v_tmp.b16(), v_exp.b16());
+			c->orr(v_acc0.b16(), v_acc0.b16(), v_tmp.b16());
+
+			// Push expected words
+			const u32 w3 = ::at32(func.data, (j - start + ~static_cast<u32>(std::countl_zero(cmask)) % 4 * 4) / 4);
+			words.push_back(cmask & 1 ? func.data[(j - start + 0) / 4] : w3);
+			words.push_back(cmask & 2 ? func.data[(j - start + 4) / 4] : w3);
+			words.push_back(cmask & 4 ? func.data[(j - start + 8) / 4] : w3);
+			words.push_back(w3);
+
+			code_off += 16;
+		}
+
+		// Test if accumulated result is non-zero
+		// Scalar reduction via umov+orr: avoids the vector-form UMINV encoding pitfall
+		// (UMINV only takes a scalar B destination; the vector-typed destination used
+		// previously could assemble into a wrong instruction and make verification
+		// fail unconditionally, trapping the block in an endless dispatch loop).
+		c->umov(qw0->x(), v_acc0.d(0));
+		c->umov(qw1->x(), v_acc0.d(1));
+		c->orr(qw0->x(), qw0->x(), qw1->x());
+		c->cbnz(qw0->x(), label_diff);
+#endif
 	}
 
 	// Acknowledge success and add statistics
+#if ARCH_X64
 	c->add(SPU_OFF_64(block_counter), ::size32(words) / (words_align / 4));
+#elif defined(ARCH_ARM64)
+	{
+		const u32 inc_val = ::size32(words) / (words_align / 4);
+		c->ldr(*qw0, SPU_OFF_64(block_counter));
+		c->add(*qw0, *qw0, asmjit::Imm(inc_val));
+		c->str(*qw0, SPU_OFF_64(block_counter));
+	}
+#endif
 
 	// Set block hash for profiling (if enabled)
 	if (g_cfg.core.spu_prof || g_cfg.core.spu_debug)
 	{
+#if ARCH_X64
 		c->mov(x86::rax, m_hash_start | 0xffff);
 		c->mov(SPU_OFF_64(block_hash), x86::rax);
+#elif defined(ARCH_ARM64)
+		c->mov(*qw0, asmjit::Imm(m_hash_start | 0xffff));
+		c->str(*qw0, SPU_OFF_64(block_hash));
+#endif
 	}
 
 	if (m_pos != start)
 	{
 		// Jump to the entry point if necessary
+#if ARCH_X64
 		c->jmp(instr_labels[m_pos]);
+#elif defined(ARCH_ARM64)
+		c->b(instr_labels[m_pos]);
+#endif
 		m_pos = -1;
 	}
 
@@ -830,17 +1059,41 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 	// Simply return
 	c->align(AlignMode::kCode, 16);
 	c->bind(label_stop);
+#if ARCH_X64
 	c->add(x86::rsp, 0x28);
 	c->ret();
+#elif defined(ARCH_ARM64)
+    //epilog
+	c->ldr(a64::x30, asmjit::arm::Mem(a64::sp, 32));
+	c->ldp(a64::x21, a64::x22, asmjit::arm::Mem(a64::sp, 16));
+	c->ldp(a64::x19, a64::x20, asmjit::arm::Mem(a64::sp));
+	c->add(a64::sp, a64::sp, asmjit::Imm(48));
+	c->ret(a64::x30);
+#endif
 
 	if (g_cfg.core.spu_verification)
 	{
 		// Dispatch
 		c->align(AlignMode::kCode, 16);
 		c->bind(label_diff);
+#if ARCH_X64
 		c->inc(SPU_OFF_64(block_failure));
 		c->add(x86::rsp, 0x28);
 		c->jmp(spu_runtime::tr_dispatch);
+#elif defined(ARCH_ARM64)
+		c->ldr(*qw0, SPU_OFF_64(block_failure));
+		c->add(*qw0, *qw0, asmjit::Imm(1));
+		c->str(*qw0, SPU_OFF_64(block_failure));
+		c->ldr(a64::x30, asmjit::arm::Mem(a64::sp, 32));
+		c->ldp(a64::x21, a64::x22, asmjit::arm::Mem(a64::sp, 16));
+		c->ldp(a64::x19, a64::x20, asmjit::arm::Mem(a64::sp));
+		c->add(a64::sp, a64::sp, asmjit::Imm(48));
+		// ARM64 uses spu_runtime::tr_dispatch as well (built via build_function_asm +
+		// ghc_cpp_trampoline in SPUCommonRecompiler.cpp); it tail-jumps to the C++
+		// spu_recompiler_base::dispatch with x19-x22 mapped to x0-x3 (GHC -> AAPCS).
+		c->mov(*qw0, asmjit::Imm(reinterpret_cast<u64>(spu_runtime::tr_dispatch)));
+		c->br(*qw0);
+#endif
 	}
 
 	for (auto&& work : ::as_rvalue(std::move(after)))
@@ -875,9 +1128,13 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 
 	c->align(AlignMode::kData, words_align);
 	c->bind(label_code);
+#if ARCH_X64
 	for (u32 d : words)
 		c->dd(d);
-
+#elif defined(ARCH_ARM64)
+	for (u32 d : words)
+		c->embedUInt32(d);
+#endif
 	for (auto&& work : ::as_rvalue(std::move(consts)))
 	{
 		work();
@@ -886,7 +1143,11 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 	label_stop.reset();
 	instr_table.reset();
 	instr_labels.clear();
+#ifdef ARCH_X64
 	xmm_consts.clear();
+#elif defined(ARCH_ARM64)
+	v_consts.clear();
+#endif
 
 	// Compile and get function address
 	spu_function_t fn = reinterpret_cast<spu_function_t>(m_asmrt._add(&code));
@@ -928,6 +1189,7 @@ spu_function_t spu_recompiler::compile(spu_program&& _func)
 	return fn;
 }
 
+#ifdef ARCH_X64
 spu_recompiler::XmmLink spu_recompiler::XmmAlloc() // get empty xmm register
 {
 	for (auto& v : vec)
@@ -978,6 +1240,64 @@ inline asmjit::x86::Mem spu_recompiler::get_pc(u32 addr)
 {
 	return asmjit::x86::qword_ptr(*pc0, addr - m_base);
 }
+#elif defined(ARCH_ARM64)
+
+
+spu_recompiler::VLink spu_recompiler::VAlloc()
+{
+	for (auto& v : vec)
+	{
+		if (v) return { v };
+	}
+
+	fmt::throw_exception("Out of Vec Vars");
+}
+
+spu_recompiler::VLink spu_recompiler::VGet(s8 reg, VType type)
+{
+	VLink result = VAlloc();
+
+	switch (type)
+	{
+	case VType::Int: c->ldr(result, SPU_OFF_128(gpr, reg)); break;
+	case VType::Float: c->ldr(result, SPU_OFF_128(gpr, reg)); break;
+	case VType::Double: c->ldr(result, SPU_OFF_128(gpr, reg)); break;
+	default: fmt::throw_exception("Invalid VType");
+	}
+
+	return result;
+}
+
+inline asmjit::a64::Mem spu_recompiler::VConst(const v128& data)
+{
+	// Embed the 128-bit constant in the code buffer (deferred, emitted after the
+	// function, mirroring the x86 XmmConst approach) and reference it via a label.
+	const auto key = std::make_pair(data._u64[0], data._u64[1]);
+
+	auto& label = v_consts[key];
+
+	if (!label.isValid())
+	{
+		label = c->newLabel();
+
+		consts.emplace_back([=, this]
+		{
+			c->align(asmjit::AlignMode::kData, 16);
+			c->bind(label);
+			c->embedUInt64(data._u64[0]);
+			c->embedUInt64(data._u64[1]);
+		});
+	}
+
+	return asmjit::a64::ptr(label);
+}
+
+/*inline asmjit::a64::Mem spu_recompiler::get_pc(u32 addr)
+{
+	return asmjit::a64::ptr(*pc0, addr - m_base);
+}*/
+
+#endif
 
 static void check_state(spu_thread* _spu)
 {
@@ -987,10 +1307,12 @@ static void check_state(spu_thread* _spu)
 	}
 }
 
+//验证这里
 void spu_recompiler::branch_fixed(u32 target, bool absolute)
 {
 	using namespace asmjit;
 
+#if ARCH_X64
 	// Check local branch
 	const auto local = instr_labels.find(target);
 
@@ -1050,12 +1372,83 @@ void spu_recompiler::branch_fixed(u32 target, bool absolute)
 	{
 		c->jmp(label_stop);
 	}
-}
+#elif defined(ARCH_ARM64)
+	const auto local = instr_labels.find(target);
 
+	if (local != instr_labels.end() && local->second.isValid())
+	{
+		Label fail;
+
+		if (absolute)
+		{
+			fail = c->newLabel();
+			c->cmp(pc0->w(), asmjit::Imm(m_base));
+			c->b_ne(fail);
+		}
+
+		c->ldr(qw0->w(), SPU_OFF_32(state));
+		c->cmp(qw0->w(), asmjit::Imm(0));
+		c->b_eq(local->second);
+		c->mov(*addr, asmjit::Imm(target - m_base));
+		c->add(*addr, *pc0, *addr);
+		c->and_(*addr, *addr, asmjit::Imm(0x3fffc));
+		c->str(addr->w(), SPU_OFF_32(pc));
+		c->mov(*arg0, *cpu);
+		c->mov(*qw0, asmjit::Imm(reinterpret_cast<u64>(&check_state)));
+		c->blr(*qw0);
+		c->b(local->second);
+
+		if (absolute)
+		{
+			c->bind(fail);
+		}
+		else
+		{
+			return;
+		}
+	}
+
+	const auto ppptr = !g_cfg.core.spu_verification ? nullptr : m_spurt->make_branch_patchpoint();
+
+	if (absolute)
+	{
+		c->mov(*addr, asmjit::Imm(target));
+		c->str(addr->w(), SPU_OFF_32(pc));
+	}
+	else
+	{
+		c->mov(*addr, asmjit::Imm(target - m_base));
+		c->add(*addr, *pc0, *addr);
+		c->and_(*addr, *addr, asmjit::Imm(0x3fffc));
+		c->str(addr->w(), SPU_OFF_32(pc));
+	}
+
+	c->eor(*rip, *rip, *rip);
+	c->ldr(qw0->w(), SPU_OFF_32(state));
+	c->cmp(qw0->w(), asmjit::Imm(0));
+	c->b_ne(label_stop);
+
+	if (ppptr)
+	{
+		c->ldr(a64::x30, asmjit::arm::Mem(a64::sp, 32));
+		c->ldp(a64::x21, a64::x22, asmjit::arm::Mem(a64::sp, 16));
+		c->ldp(a64::x19, a64::x20, asmjit::arm::Mem(a64::sp));
+		c->add(a64::sp, a64::sp, asmjit::Imm(48));
+		c->mov(*qw0, asmjit::Imm(reinterpret_cast<u64>(ppptr)));
+		c->br(*qw0);
+	}
+	else
+	{
+		c->b(label_stop);
+	}
+#endif
+}
+//这里
 void spu_recompiler::branch_indirect(spu_opcode_t op, bool jt, bool ret)
 {
 	using namespace asmjit;
 
+#if ARCH_X64
 	// Initialize third arg to zero
 	c->xor_(rip->r32(), rip->r32());
 
@@ -1162,12 +1555,132 @@ void spu_recompiler::branch_indirect(spu_opcode_t op, bool jt, bool ret)
 	{
 		c->jmp(label_stop);
 	}
+#elif defined(ARCH_ARM64)
+	c->eor(*rip, *rip, *rip);
+
+	if (op.d)
+	{
+		c->mov(*qw0, asmjit::Imm(0));
+		c->strb(qw0->w(), SPU_OFF_8(interrupts_enabled));
+	}
+	else if (op.e)
+	{
+		Label no_intr = c->newLabel();
+		Label intr = c->newLabel();
+		Label fail = c->newLabel();
+
+		c->ldr(*qw1, SPU_OFF_64(ch_events));
+		c->ror(*qw1, *qw1, asmjit::Imm(32));
+		c->mov(*qw0, asmjit::Imm(~static_cast<u32>(SPU_EVENT_INTR_IMPLEMENTED)));
+		c->tst(qw1->w(), qw0->w());
+		c->ror(*qw1, *qw1, asmjit::Imm(32));
+		c->b_ne(fail);
+		c->mov(*qw0, asmjit::Imm(1));
+		c->strb(qw0->w(), SPU_OFF_8(interrupts_enabled));
+		c->tst(qw1->w(), asmjit::Imm(1u << 31));
+		c->b_ne(intr);
+		c->b(no_intr);
+		c->bind(fail);
+		c->str(addr->w(), SPU_OFF_32(pc));
+		c->mov(*arg0, *cpu);
+		auto _throw = [](spu_thread* _spu)
+		{
+			_spu->state += cpu_flag::dbg_pause;
+			spu_log.fatal("SPU Interrupts not implemented (mask=0x%x)", +_spu->ch_events.load().mask);
+			spu_runtime::g_escape(_spu);
+		};
+		// Restore frame before the tail call (never returns, escapes to the gateway)
+		c->ldr(a64::x30, asmjit::arm::Mem(a64::sp, 32));
+		c->ldp(a64::x21, a64::x22, asmjit::arm::Mem(a64::sp, 16));
+		c->ldp(a64::x19, a64::x20, asmjit::arm::Mem(a64::sp));
+		c->add(a64::sp, a64::sp, asmjit::Imm(48));
+		c->mov(*qw0, asmjit::Imm(reinterpret_cast<u64>(+static_cast<void(*)(spu_thread*)>(_throw))));
+		c->br(*qw0);
+
+		c->bind(intr);
+		c->mov(*qw0, asmjit::Imm(0));
+		c->strb(qw0->w(), SPU_OFF_8(interrupts_enabled));
+		c->str(addr->w(), SPU_OFF_32(srr0));
+
+		// Test for BR/BRA instructions (they are equivalent at zero pc)
+		c->ldr(addr->w(), asmjit::arm::Mem(*ls));
+		c->and_(addr->w(), addr->w(), asmjit::Imm(0xfffffffd));
+		c->eor(addr->w(), addr->w(), asmjit::Imm(0x30));
+		c->rev(addr->w(), addr->w());
+		c->tst(addr->w(), asmjit::Imm(0xff80007f));
+		c->csel(*addr, *rip, *addr, asmjit::Imm(static_cast<uint32_t>(asmjit::arm::CondCode::kNE)));
+		c->lsr(*addr, *addr, asmjit::Imm(5));
+		c->align(asmjit::AlignMode::kCode, 16);
+		c->bind(no_intr);
+	}
+
+	c->str(addr->w(), SPU_OFF_32(pc));
+	c->ldr(qw0->w(), SPU_OFF_32(state));
+	c->cmp(qw0->w(), asmjit::Imm(0));
+	c->b_ne(label_stop);
+
+	if (g_cfg.core.spu_block_size != spu_block_size_type::safe && ret)
+	{
+		Label fail = c->newLabel();
+		c->ldr(qw1->w(), SPU_OFF_32(gpr, 1, &v128::_u32, 3));
+		c->and_(qw1->w(), qw1->w(), asmjit::Imm(0x3fff0));
+		c->add(*qw1, *cpu, *qw1);
+		c->add(*qw1, *qw1, asmjit::Imm(::offset32(&spu_thread::stack_mirror)));
+		c->ldr(*qw0, asmjit::arm::Mem(*qw1, 8));
+		c->cmp(qw0->w(), addr->w());
+		c->b_ne(fail);
+		c->ldr(pc0->w(), asmjit::arm::Mem(*qw1, 12));
+		c->ldr(*qw0, asmjit::arm::Mem(*qw1));
+		c->br(*qw0);
+		c->bind(fail);
+	}
+
+	if (jt || g_cfg.core.spu_block_size == spu_block_size_type::giga)
+	{
+		if (!instr_table.isValid())
+		{
+			instr_table = c->newLabel();
+		}
+
+		const u32 start = instr_labels.begin()->first;
+		const u32 end = instr_labels.rbegin()->first + 4;
+
+		ensure(start == m_base);
+		Label fail = c->newLabel();
+		c->mov(qw1->w(), addr->w());
+		c->sub(qw1->w(), qw1->w(), pc0->w());
+		c->cmp(qw1->w(), asmjit::Imm(end - start));
+		c->b_hs(fail);
+		c->adr(*qw0, instr_table);
+		c->lsl(*qw1, *qw1, asmjit::Imm(1)); c->add(*qw0, *qw0, *qw1);
+		c->ldr(*qw0, asmjit::arm::Mem(*qw0));
+		c->br(*qw0);
+		c->bind(fail);
+	}
+
+	const auto ppptr = !g_cfg.core.spu_verification ? nullptr : m_spurt->make_branch_patchpoint();
+
+	if (ppptr)
+	{
+		c->ldr(a64::x30, asmjit::arm::Mem(a64::sp, 32));
+		c->ldp(a64::x21, a64::x22, asmjit::arm::Mem(a64::sp, 16));
+		c->ldp(a64::x19, a64::x20, asmjit::arm::Mem(a64::sp));
+		c->add(a64::sp, a64::sp, asmjit::Imm(48));
+		c->mov(*qw0, asmjit::Imm(reinterpret_cast<u64>(ppptr)));
+		c->br(*qw0);
+	}
+	else
+	{
+		c->b(label_stop);
+	}
+#endif
 }
 
 void spu_recompiler::branch_set_link(u32 target)
 {
 	using namespace asmjit;
 
+#if ARCH_X64
 	if (g_cfg.core.spu_block_size != spu_block_size_type::safe)
 	{
 		// Find instruction at target
@@ -1201,15 +1714,69 @@ void spu_recompiler::branch_set_link(u32 target)
 				// Set block hash for profiling (if enabled)
 				if (g_cfg.core.spu_prof || g_cfg.core.spu_debug)
 				{
+		#if ARCH_X64
 					c->mov(x86::rax, m_hash_start | 0xffff);
 					c->mov(SPU_OFF_64(block_hash), x86::rax);
+		#elif defined(ARCH_ARM64)
+					c->mov(*qw0, asmjit::Imm(m_hash_start | 0xffff));
+					c->str(*qw0, SPU_OFF_64(block_hash));
+		#endif
 				}
 
 				c->jmp(target);
 			});
 		}
 	}
+#elif defined(ARCH_ARM64)
+	if (g_cfg.core.spu_block_size != spu_block_size_type::safe)
+	{
+		const auto local = instr_labels.find(target);
+
+		if (local != instr_labels.end() && local->second.isValid())
+		{
+			Label ret = c->newLabel();
+
+			c->ldr(qw1->w(), SPU_OFF_32(gpr, 1, &v128::_u32, 3));
+			c->and_(qw1->w(), qw1->w(), asmjit::Imm(0x3fff0));
+			c->add(*qw1, *cpu, *qw1);
+			c->add(*qw1, *qw1, asmjit::Imm(::offset32(&spu_thread::stack_mirror)));
+			c->adr(*qw0, ret);
+			c->str(*qw0, asmjit::arm::Mem(*qw1, 0));
+			c->mov(*qw0, asmjit::Imm(target - m_base));
+			c->add(qw0->w(), qw0->w(), pc0->w());
+			c->and_(qw0->w(), qw0->w(), asmjit::Imm(0x3fffc));
+			c->str(qw0->w(), asmjit::arm::Mem(*qw1, 8));
+			c->str(pc0->w(), asmjit::arm::Mem(*qw1, 12));
+
+			after.emplace_back([=, this, target = local->second]
+			{
+				c->align(asmjit::AlignMode::kCode, 16);
+				c->bind(ret);
+				c->ldr(qw1->w(), SPU_OFF_32(gpr, 1, &v128::_u32, 3));
+				c->and_(qw1->w(), qw1->w(), asmjit::Imm(0x3fff0));
+				c->add(*qw1, *cpu, *qw1);
+				c->add(*qw1, *qw1, asmjit::Imm(::offset32(&spu_thread::stack_mirror)));
+				c->mov(*qw0, asmjit::Imm(~0ull));
+				c->str(*qw0, asmjit::arm::Mem(*qw1, 0));
+				c->str(*qw0, asmjit::arm::Mem(*qw1, 8));
+
+				if (g_cfg.core.spu_prof || g_cfg.core.spu_debug)
+				{
+					c->mov(*qw0, asmjit::Imm(m_hash_start | 0xffff));
+					c->str(*qw0, SPU_OFF_64(block_hash));
+				}
+
+				c->b(target);
+			});
+		}
+	}
+#endif
 }
+
+// Fallback interpreter decoder hook, used by the standalone test program
+// where g_fxo is not initialized. Returns the interpreter function for the
+// given opcode, or null if unset (then g_fxo is used instead).
+spu_intrp_func_t (*spu_fallback_decode)(u32 opcode) = nullptr;
 
 void spu_recompiler::fall(spu_opcode_t op)
 {
@@ -1223,15 +1790,126 @@ void spu_recompiler::fall(spu_opcode_t op)
 		}
 	};
 
+	// Resolve the interpreter function: prefer the test hook if installed
+	const spu_intrp_func_t fallback_fn = spu_fallback_decode ? spu_fallback_decode(op.opcode) : nullptr;
+	const spu_intrp_func_t intrp_fn = fallback_fn ? fallback_fn : g_fxo->get<spu_interpreter_rt>().decode(op.opcode);
+
+#if ARCH_X64
 	c->lea(addr->r64(), get_pc(m_pos));
 	c->and_(*addr, 0x3fffc);
 	c->mov(SPU_OFF_32(pc), *addr);
 	c->mov(arg1->r32(), op.opcode);
-	c->mov(*qw0, g_fxo->get<spu_interpreter_rt>().decode(op.opcode));
+	c->mov(*qw0, intrp_fn);
 	c->mov(*arg0, *cpu);
 	c->call(+gate);
+#elif defined(ARCH_ARM64)
+	c->mov(*addr, asmjit::Imm(m_pos - m_base));
+	c->add(*addr, *pc0, *addr);
+	c->and_(*addr, *addr, asmjit::Imm(0x3fffc));
+	c->str(addr->w(), SPU_OFF_32(pc));
+    c->mov(*arg0, *cpu);
+	c->mov(arg1->w(), asmjit::Imm(op.opcode));
+	c->mov(*arg2, asmjit::Imm(reinterpret_cast<u64>(intrp_fn)));
+	c->mov(*qw0, asmjit::Imm(reinterpret_cast<u64>(+gate)));
+	c->blr(*qw0);
+#endif
 }
 
+#ifdef ARCH_ARM64
+// Diagnostic helper: log halt operands right before the halt magic write
+static void spu_halt_diag(spu_thread* _spu, u32 opcode)
+{
+	const spu_opcode_t op{opcode};
+
+	const u8* ls8 = _spu->ls;
+
+	spu_log.error("HALT DIAG: pc=0x%05x op=0x%08x ra=%u ra[3]=0x%08x si10=%d",
+		_spu->pc, opcode, static_cast<u32>(op.ra), _spu->gpr[op.ra]._u32[3], static_cast<s32>(op.si10));
+
+	// Dump the full register chain involved in the SPURS kernel check
+	for (u32 i : {3u, 5u, 8u, 9u, 10u, 11u})
+	{
+		const v128& r = _spu->gpr[i];
+		spu_log.error("HALT DIAG: r%u = [%08x %08x %08x %08x]", i, r._u32[3], r._u32[2], r._u32[1], r._u32[0]);
+	}
+
+	spu_log.error("HALT DIAG: LS[0x1c0..0x1cf] = %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x",
+		ls8[0x1c0], ls8[0x1c1], ls8[0x1c2], ls8[0x1c3], ls8[0x1c4], ls8[0x1c5], ls8[0x1c6], ls8[0x1c7],
+		ls8[0x1c8], ls8[0x1c9], ls8[0x1ca], ls8[0x1cb], ls8[0x1cc], ls8[0x1cd], ls8[0x1ce], ls8[0x1cf]);
+}
+
+// Emitted by halt instructions: set pc, log diagnostics, then do the magic write
+void spu_recompiler::a64_halt_body(asmjit::Label label, spu_opcode_t op)
+{
+	after.emplace_back([=, this, pos = m_pos]
+	{
+		c->bind(label);
+		c->mov(*addr, asmjit::Imm(pos - m_base));
+		c->add(*addr, *pc0, *addr);
+		c->and_(*addr, *addr, asmjit::Imm(0x3fffc));
+		c->str(addr->w(), SPU_OFF_32(pc));
+		c->mov(*arg0, *cpu);
+		c->mov(arg1->w(), asmjit::Imm(op.opcode));
+		c->mov(*qw1, asmjit::Imm(reinterpret_cast<u64>(+spu_halt_diag)));
+		c->blr(*qw1);
+		c->mov(*qw0, asmjit::Imm(reinterpret_cast<u64>(vm::base(0xffdead00))));
+		c->mov(qw1->w(), asmjit::Imm("HALT"_u32));
+		c->str(qw1->w(), asmjit::arm::Mem(*qw0));
+		c->b(label_stop);
+	});
+}
+#endif
+
+#ifdef ARCH_ARM64
+// MFC command diagnostic: log full command and source registers before processing
+static void spu_mfc_diag(spu_thread* _spu)
+{
+	const auto& c = _spu->ch_mfc_cmd;
+	spu_log.error("MFC DIAG: pc=0x%05x cmd=%u lsa=0x%05x eal=0x%08x eah=0x%08x size=0x%04x tag=%u",
+		_spu->pc, static_cast<u32>(c.cmd), c.lsa, c.eal, c.eah, static_cast<u32>(c.size), static_cast<u32>(c.tag));
+	for (u32 i = 0; i < 128; i++)
+	{
+		const v128& r = _spu->gpr[i];
+		spu_log.error("MFC DIAG: r%u = [%08x %08x %08x %08x]", i, r._u32[3], r._u32[2], r._u32[1], r._u32[0]);
+	}
+	const u32* ls32 = reinterpret_cast<const u32*>(_spu->ls);
+	for (u32 a = 0x0; a < 0x800; a += 16)
+	{
+		spu_log.error("MFC DIAG: LS[%05x] = %08x %08x %08x %08x", a, ls32[a / 4], ls32[a / 4 + 1], ls32[a / 4 + 2], ls32[a / 4 + 3]);
+	}
+}
+
+// MFC field-write trace: log channel field writes with source value and pc,
+// plus a full register file dump to compare memory contents at write time.
+static void spu_mfc_wtrace(spu_thread* _spu, u32 chrt, u32 value, u32 wpc)
+{
+	const u32 ch = chrt & 0xff, rt = chrt >> 8;
+	spu_log.error("MFC WTRACE: pc=0x%05x ch=%u rt=%u val=0x%08x", wpc, ch, rt, value);
+	for (u32 i = 0; i < 128; i++)
+	{
+		const v128& r = _spu->gpr[i];
+		if (r._u32[0] | r._u32[1] | r._u32[2] | r._u32[3])
+			spu_log.error("MFC WTDUMP: r%u = [%08x %08x %08x %08x]", i, r._u32[3], r._u32[2], r._u32[1], r._u32[0]);
+	}
+}
+
+// Read gpr[rt]._u32[3] from memory in C++ (workaround probe for suspected
+// misencoded JIT ldr reading wrong values from the correct address).
+static u32 spu_mfc_rdreg(spu_thread* _spu, u32 rt)
+{
+	return _spu->gpr[rt]._u32[3];
+}
+#endif
+
+#ifdef ARCH_X64
+static void spu_mfc_wtrace_x(spu_thread* _spu, u32 chrt, u32 value, u32 wpc)
+{
+	const u32 ch = chrt & 0xff, rt = chrt >> 8;
+	spu_log.error("MFC WTRACEX: pc=0x%05x ch=%u rt=%u val=0x%08x", wpc, ch, rt, value);
+}
+#endif
+
+#ifdef ARCH_X64
 void spu_recompiler::UNK(spu_opcode_t op)
 {
 	auto gate = [](spu_thread* _spu, u32 op)
@@ -1865,14 +2543,14 @@ void spu_recompiler::ROTH(spu_opcode_t op) //nf
 {
 	const XmmLink& va = XmmGet(op.ra, XmmType::Int);
 	const XmmLink& vb = XmmGet(op.rb, XmmType::Int);
-	
+
 	if (utils::has_avx512_icl())
 	{
 		c->vpshldvw(va, va, vb);
 		c->vmovdqa(SPU_OFF_128(gpr, op.rt), va);
 		return;
 	}
-	
+
 	if (utils::has_avx512())
 	{
 		const XmmLink& vt = XmmAlloc();
@@ -3668,7 +4346,7 @@ void spu_recompiler::FCMGT(spu_opcode_t op)
 	c->pxor(v1, v1);
 	c->cmpps(v0, va, 3 /* isNaN */);
 	c->cmpps(v1, vb, 3);
-	
+
 	c->movaps(vt, XmmConst(v128::from32p(0x7fffffff)));
 	c->andps(va, vt);
 	c->andps(vb, vt);
@@ -4931,3 +5609,7 @@ void spu_recompiler::FMS(spu_opcode_t op)
 	c->subps(va, SPU_OFF_128(gpr, op.rc));
 	c->movaps(SPU_OFF_128(gpr, op.rt4), va);
 }
+
+#elif defined(ARCH_ARM64)
+#include "spuasmjit_arm.cpp"
+#endif

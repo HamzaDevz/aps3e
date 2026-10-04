@@ -1787,13 +1787,11 @@ void spu_thread::init_spu_decoder()
 #else
 	const spu_decoder_type spu_decoder = g_cfg.core.spu_decoder;
 
-#if defined(ARCH_X64)
 	if (spu_decoder == spu_decoder_type::asmjit)
 	{
 		jit = spu_recompiler_base::make_asmjit_recompiler();
 	}
 	else
-#endif
 	if (spu_decoder == spu_decoder_type::llvm)
 	{
 #if defined(ARCH_X64)
