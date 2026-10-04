@@ -3,8 +3,9 @@ name: openssh Tests
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '*' ]
 
 concurrency:
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   build_wolfssl:
     name: Build wolfSSL
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     # Just to keep it the same as the testing target
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
@@ -34,7 +35,7 @@ jobs:
         run: tar -zcf build-dir.tgz build-dir
 
       - name: Upload built lib
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wolf-install-openssh
           path: build-dir.tgz
@@ -69,13 +70,23 @@ jobs:
             SKIP_LTESTS: >-
               exit-status rekey multiplex forward-control channel-timeout
               connection-timeout
+          - git_ref: 'V_10_2_P1'
+            osp_ver: '10.2p1'
+            SKIP_LTESTS: >-
+              exit-status rekey multiplex forward-control channel-timeout
+              connection-timeout
+          - git_ref: 'V_10_3_P1'
+            osp_ver: '10.3p1'
+            SKIP_LTESTS: >-
+              exit-status rekey multiplex forward-control channel-timeout
+              connection-timeout
     name: ${{ matrix.osp_ver }}
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     needs: build_wolfssl
     steps:
       - name: Download lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: wolf-install-openssh
 
@@ -83,10 +94,11 @@ jobs:
         run: tar -xf build-dir.tgz
 
       - name: Checkout OSP
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: wolfssl/osp
           path: osp
+          fetch-depth: 1
 
       - name: Build and test openssh
         uses: wolfSSL/actions-build-autotools-project@v1

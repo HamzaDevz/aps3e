@@ -36,7 +36,7 @@
 
 #include <curl/curl.h>
 
-static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *stream)
+static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *stream)
 {
   size_t written = fwrite(ptr, size, nmemb, (FILE *)stream);
   return written;
@@ -53,9 +53,9 @@ int main(void)
   /* init the curl session */
   curl = curl_easy_init();
   if(curl) {
-    static const char *headerfilename = "head.out";
+    static const char headerfilename[] = "head.out";
     FILE *headerfile;
-    static const char *bodyfilename = "body.out";
+    static const char bodyfilename[] = "body.out";
     FILE *bodyfile;
 
     /* set URL to get */

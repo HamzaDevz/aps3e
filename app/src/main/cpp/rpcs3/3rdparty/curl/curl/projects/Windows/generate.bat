@@ -165,12 +165,12 @@ rem
     set "R02=v100"
     set "R03=VC10"
     set "R04=4.0"
-  ) else if "%1%" == "VC11" (
+  ) else if "%1" == "VC11" (
     set "R01=12.00"
     set "R02=v110"
     set "R03=VC11"
     set "R04=4.0"
-  ) else if "%1%" == "VC12" (
+  ) else if "%1" == "VC12" (
     set "R01=12.00"
     set "R02=v120"
     set "R03=VC12"
@@ -214,6 +214,10 @@ rem
       for /f "delims=" %%c in ('dir /b ..\..\lib\vauth\*.c') do call :element lib\vauth "%%c" %3
     ) else if "!var!" == "CURL_LIB_VAUTH_H_FILES" (
       for /f "delims=" %%h in ('dir /b ..\..\lib\vauth\*.h') do call :element lib\vauth "%%h" %3
+    ) else if "!var!" == "CURL_LIB_VDNS_C_FILES" (
+      for /f "delims=" %%c in ('dir /b ..\..\lib\vdns\*.c') do call :element lib\vdns "%%c" %3
+    ) else if "!var!" == "CURL_LIB_VDNS_H_FILES" (
+      for /f "delims=" %%h in ('dir /b ..\..\lib\vdns\*.h') do call :element lib\vdns "%%h" %3
     ) else if "!var!" == "CURL_LIB_VQUIC_C_FILES" (
       for /f "delims=" %%c in ('dir /b ..\..\lib\vquic\*.c') do call :element lib\vquic "%%c" %3
     ) else if "!var!" == "CURL_LIB_VQUIC_H_FILES" (
@@ -337,8 +341,8 @@ rem
 :seterr
   rem Set the caller's errorlevel.
   rem %1[opt]: Errorlevel as integer.
-  rem If %1 is empty the errorlevel will be set to 0.
-  rem If %1 is not empty and not an integer the errorlevel will be set to 1.
+  rem If %1 is empty the errorlevel is set to 0.
+  rem If %1 is not empty and not an integer the errorlevel is set to 1.
   setlocal
   set EXITCODE=%~1
   if not defined EXITCODE set EXITCODE=0

@@ -26,11 +26,17 @@ AUTOMAKE_OPTIONS = foreign nostdinc
 # Get CSOURCES, HHEADERS, LIB_RCFILES variables
 include Makefile.inc
 
-CMAKE_DIST = CMakeLists.txt curl_config-cmake.h.in
-
-EXTRA_DIST = config-mac.h config-os400.h config-riscos.h config-win32.h         \
-  curl_config.h.in $(LIB_RCFILES) libcurl.def $(CMAKE_DIST) Makefile.soname     \
-  optiontable.pl
+EXTRA_DIST = \
+  CMakeLists.txt \
+  config-mac.h \
+  config-os400.h \
+  config-win32.h \
+  curl_config-cmake.h.in \
+  curl_config.h.in \
+  libcurl.def \
+  Makefile.soname \
+  optiontable.pl \
+  $(LIB_RCFILES)
 
 lib_LTLIBRARIES = libcurl.la
 
@@ -164,8 +170,8 @@ UNITV_ = $(UNITV_0)
 $(UNITPROTOS): $(CSOURCES)
 	$(UNIT_V)(cd $(srcdir) && @PERL@ ../scripts/extract-unit-protos $(CSOURCES)) > $(top_builddir)/lib/$(UNITPROTOS)
 
-_tidy_cflags :=
-TIDYFLAGS :=
+_tidy_cflags =
+TIDYFLAGS =
 if CURL_WERROR
 TIDYFLAGS += '--warnings-as-errors=*'
 endif
@@ -175,10 +181,11 @@ endif
 
 tidy:
 	(_csources=`echo ' $(CSOURCES)' | sed -E -e 's/ +$$//' -e 's/ +/ /g' -e 's| | $(srcdir)/|g'`; \
-	@CLANG_TIDY@ --config-file=$(top_srcdir)/.clang-tidy.yml $(TIDYFLAGS) $(CURL_CLANG_TIDYFLAGS) $$_csources -- $(AM_CPPFLAGS) $(CPPFLAGS) -DHAVE_CONFIG_H $(_tidy_cflags))
+	@CLANG_TIDY@ --config-file=$(top_srcdir)/.clang-tidy.yml $(TIDYFLAGS) $(CURL_CLANG_TIDYFLAGS) $$_csources \
+	  -- $(AM_CPPFLAGS) $(CPPFLAGS) -DHAVE_CONFIG_H $(_tidy_cflags))
 
 optiontable:
-	@PERL@ $(srcdir)/optiontable.pl < $(top_srcdir)/include/curl/curl.h > $(srcdir)/easyoptions.c
+	@PERL@ $(srcdir)/optiontable.pl $(top_srcdir)/include/curl/curl.h > $(srcdir)/easyoptions.c
 
 if HAVE_WINDRES
 .rc.lo:

@@ -3,8 +3,9 @@ name: rng-tools Tests
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '*' ]
 
 concurrency:
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   build_wolfssl:
     name: Build wolfSSL
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     # Just to keep it the same as the testing target
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
@@ -33,7 +34,7 @@ jobs:
         run: tar -zcf build-dir.tgz build-dir
 
       - name: Upload built lib
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wolf-install-rng-tools
           path: build-dir.tgz
@@ -46,21 +47,26 @@ jobs:
         # List of releases to test
         ref: [ 6.16, 6.17 ]
     name: ${{ matrix.ref }}
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 4
     needs: build_wolfssl
     steps:
+      - name: Checkout wolfSSL CI actions
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+
       - name: Install dependencies
-        run: |
-          # Don't prompt for anything
-          export DEBIAN_FRONTEND=noninteractive
-          sudo apt-get update
-          sudo apt-get install -y libcurl4-openssl-dev libjansson-dev libp11-dev librtlsdr-dev libcap-dev
+        uses: ./.github/actions/install-apt-deps
+        with:
+          packages: libcurl4-openssl-dev libjansson-dev libp11-dev librtlsdr-dev libcap-dev
+          ghcr-debs-tag: ubuntu-24.04-full
 
       - name: Download lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: wolf-install-rng-tools
 
@@ -68,17 +74,19 @@ jobs:
         run: tar -xf build-dir.tgz
 
       - name: Checkout OSP
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: wolfssl/osp
           path: osp
+          fetch-depth: 1
 
       - name: Checkout jitterentropy-library
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: smuellerDD/jitterentropy-library
           path: jitterentropy-library
           ref: v3.5.0
+          fetch-depth: 1
 
       - name: Build jitterentropy-library
         working-directory: jitterentropy-library

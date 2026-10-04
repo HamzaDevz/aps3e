@@ -67,6 +67,14 @@ bool is_iso_file(const fs::file& file)
 
 	return magic[0] == 'C' && magic[1] == 'D' && magic[2] == '0' && magic[3] == '0' && magic[4] == '1';
 }
+
+#ifdef __ANDROID__
+bool is_iso_file(const std::string& path)
+{
+	if (fs::is_dir(path)) return false;
+	return is_iso_file(fs::file(path));
+}
+#endif
 #ifndef __ANDROID__
 bool is_iso_file(const std::string& path)
 {
@@ -844,20 +852,31 @@ u64 iso_fs_metadata::size() const
 	return total_size;
 }
 
-#ifndef __ANDROID__
-iso_archive::iso_archive(const std::string& path)
-#else
+#ifdef __ANDROID__
 iso_archive::iso_archive(int fd,int dec_key_fd)
-#endif
 {
-#ifndef __ANDROID__
-    m_path = path;
-	m_file = fs::file(path);
-#else
     m_fd = fd;
     m_dec_key_fd = dec_key_fd;
     m_file = fs::file::from_native_handle(fd);
     if(m_dec_key_fd != -1) m_dec_key_file = fs::file::from_native_handle(dec_key_fd);
+    init_android();
+}
+
+iso_archive::iso_archive(const std::string& path)
+{
+    m_fd = -1;
+    m_dec_key_fd = -1;
+    m_file = fs::file(path);
+    init_android();
+}
+
+void iso_archive::init_android()
+{
+#else
+iso_archive::iso_archive(const std::string& path)
+{
+    m_path = path;
+    m_file = fs::file(path);
 #endif
     m_dec = std::make_shared<iso_file_decryption>();
 #ifndef __ANDROID__

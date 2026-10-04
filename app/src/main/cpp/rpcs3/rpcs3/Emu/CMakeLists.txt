@@ -29,6 +29,17 @@ if(USE_ASAN)
     set_source_files_properties(../../Utilities/Thread.cpp PROPERTIES COMPILE_DEFINITIONS USE_ASAN)
 endif()
 
+# GCC overemits weak type information when using LTO
+# This causes an issue with LLVM 22 which is build without RTTI
+# Issue is specifically related to vfs::ProxyFileSystem
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set_source_files_properties(
+        Cell/PPUThread.cpp
+        Cell/SPULLVMRecompiler.cpp
+        PROPERTIES COMPILE_OPTIONS -fno-lto
+    )
+endif()
+
 if(NOT USE_SYSTEM_OPENAL)
     target_compile_definitions(rpcs3_emu PUBLIC AL_LIBTYPE_STATIC)
 endif()
@@ -187,6 +198,7 @@ target_sources(rpcs3_emu PRIVATE
     Cell/SPUThread.cpp
     Cell/lv2/lv2.cpp
     Cell/lv2/sys_bdemu.cpp
+    Cell/lv2/sys_bluetooth.cpp
     Cell/lv2/sys_btsetting.cpp
     Cell/lv2/sys_cond.cpp
     Cell/lv2/sys_console.cpp
@@ -507,6 +519,12 @@ target_sources(rpcs3_emu PRIVATE
     RSX/Overlays/HomeMenu/overlay_home_menu_page.cpp
     RSX/Overlays/HomeMenu/overlay_home_menu_settings.cpp
     RSX/Overlays/HomeMenu/overlay_home_menu_savestate.cpp
+    RSX/Overlays/HomeMenu/overlay_home_menu_sidebar_page.cpp
+    RSX/Overlays/BigPicture/overlay_big_picture.cpp
+    RSX/Overlays/BigPicture/overlay_big_picture_game_details.cpp
+    RSX/Overlays/BigPicture/overlay_big_picture_game_grid.cpp
+    RSX/Overlays/BigPicture/overlay_big_picture_game_info.cpp
+    RSX/Overlays/BigPicture/overlay_big_picture_main_menu.cpp
     RSX/Overlays/Network/overlay_recvmessage_dialog.cpp
     RSX/Overlays/Network/overlay_sendmessage_dialog.cpp
     RSX/Overlays/Trophies/overlay_trophy_list_dialog.cpp
@@ -552,6 +570,7 @@ target_sources(rpcs3_emu PRIVATE
     RSX/Program/GLSLCommon.cpp
     RSX/Program/ProgramStateCache.cpp
     RSX/Program/program_util.cpp
+    RSX/Program/ShaderInterpreter.cpp
     RSX/Program/SPIRVCommon.cpp
     RSX/Program/VertexProgramDecompiler.cpp
     RSX/GSFrameBase.cpp
@@ -562,8 +581,8 @@ target_sources(rpcs3_emu PRIVATE
     RSX/RSXThread.cpp
     RSX/RSXZCULL.cpp
     RSX/rsx_methods.cpp
-    RSX/rsx_utils.cpp
     RSX/rsx_vertex_data.cpp
+    RSX/Utils/rsx_utils.cpp
 )
 
 if(NOT ANDROID AND NOT APPLE)
@@ -587,6 +606,7 @@ if(NOT ANDROID AND NOT APPLE)
         RSX/GL/glutils/buffer_object.cpp
         RSX/GL/glutils/capabilities.cpp
         RSX/GL/glutils/common.cpp
+        RSX/GL/glutils/ex.cpp
         RSX/GL/glutils/fbo.cpp
         RSX/GL/glutils/image.cpp
         RSX/GL/glutils/program.cpp
@@ -608,6 +628,7 @@ if(TARGET 3rdparty_vulkan)
         RSX/VK/vkutils/commands.cpp
         RSX/VK/vkutils/ex.cpp
         RSX/VK/vkutils/data_heap.cpp
+        RSX/VK/vkutils/debug_print.cpp
         RSX/VK/vkutils/descriptors.cpp
         RSX/VK/vkutils/image.cpp
         RSX/VK/vkutils/image_helpers.cpp
@@ -668,7 +689,6 @@ if(NOT ANDROID)
             PRIVATE
             3rdparty::rtmidi
     )
-    #3rdparty::libevdevx
 endif()
 
 target_link_libraries(rpcs3_emu

@@ -34,11 +34,6 @@
 #define SDL_GAMEINPUT_DEFAULT false
 #endif
 
-// Enable sensor support in GameInput 2.0, once we have a device that can be used for testing
-#if GAMEINPUT_API_VERSION >= 2
-//#define GAMEINPUT_SENSOR_SUPPORT
-#endif
-
 enum
 {
     SDL_GAMEPAD_BUTTON_GAMEINPUT_SHARE = 11
@@ -130,7 +125,7 @@ static Uint8 GAMEINPUT_GetDeviceRawType(const GameInputDeviceInfo *info)
                 break;
             case USB_VENDOR_CRKD:
                 switch (info->productId) {
-                    case USB_PRODUCT_PDP_XB1_JAGUAR_GUITAR:
+                    case USB_PRODUCT_RED_OCTANE_XB1_STAGE_TOUR_GUITAR:
                         return SDL_GAMEINPUT_RAWTYPE_ROCK_BAND_GUITAR;
                     default:
                         break;
@@ -140,6 +135,16 @@ static Uint8 GAMEINPUT_GetDeviceRawType(const GameInputDeviceInfo *info)
                 switch (info->productId) {
                     case USB_PRODUCT_RED_OCTANE_XB1_GUITAR_HERO_LIVE_GUITAR:
                         return SDL_GAMEINPUT_RAWTYPE_GUITAR_HERO_LIVE_GUITAR;
+                    default:
+                        break;
+                }
+                break;
+            case USB_VENDOR_RED_OCTANE_GAMES:
+                switch (info->productId) {
+                    case USB_PRODUCT_RED_OCTANE_XB1_STAGE_TOUR_GUITAR:
+                        return SDL_GAMEINPUT_RAWTYPE_ROCK_BAND_GUITAR;
+                    case USB_PRODUCT_RED_OCTANE_XB1_STAGE_TOUR_DRUMS:
+                        return SDL_GAMEINPUT_RAWTYPE_ROCK_BAND_DRUM_KIT;
                     default:
                         break;
                 }
@@ -419,9 +424,11 @@ static bool GAMEINPUT_JoystickInit(void)
     if (SDL_GetHintBoolean(SDL_HINT_JOYSTICK_GAMEINPUT, SDL_GAMEINPUT_DEFAULT)) {
         kind |= GameInputKindController;
     }
+#if GAMEINPUT_API_VERSION >= 3
     if (GAMEINPUT_IsRawGameInputEnabled()) {
         kind |= GameInputKindRawDeviceReport;
     }
+#endif
 
     hr = g_pGameInput->RegisterDeviceCallback(NULL,
                                            kind,
@@ -485,7 +492,9 @@ static bool GAMEINPUT_JoystickIsDevicePresent(Uint16 vendor_id, Uint16 product_i
         if (vendor_id == USB_VENDOR_MICROSOFT &&
             product_id == USB_PRODUCT_XBOX_ONE_XBOXGIP_CONTROLLER) {
             // The Xbox One controller shows up as a hardcoded raw input VID/PID, which we definitely handle
-            return true;
+            if (SDL_GetHintBoolean(SDL_HINT_JOYSTICK_GAMEINPUT, SDL_GAMEINPUT_DEFAULT)) {
+                return true;
+            }
         }
 
         for (int i = 0; i < g_GameInputList.count; ++i) {
@@ -647,17 +656,17 @@ static bool GAMEINPUT_JoystickOpen(SDL_Joystick *joystick, int device_index)
         SDL_SetBooleanProperty(SDL_GetJoystickProperties(joystick), SDL_PROP_JOYSTICK_CAP_TRIGGER_RUMBLE_BOOLEAN, true);
     }
 
-#ifdef GAMEINPUT_SENSOR_SUPPORT
+#if GAMEINPUT_API_VERSION >= 3
     if (info->supportedInput & GameInputKindSensors) {
-        // FIXME: What's the sensor update rate?
         if (info->sensorsInfo->supportedSensors & GameInputSensorsGyrometer) {
-            SDL_PrivateJoystickAddSensor(joystick, SDL_SENSOR_GYRO, 250.0f);
+            SDL_PrivateJoystickAddSensor(joystick, SDL_SENSOR_GYRO, 60.0f);
         }
         if (info->sensorsInfo->supportedSensors & GameInputSensorsAccelerometer) {
-            SDL_PrivateJoystickAddSensor(joystick, SDL_SENSOR_ACCEL, 250.0f);
+            SDL_PrivateJoystickAddSensor(joystick, SDL_SENSOR_ACCEL, 60.0f);
         }
     }
-#endif
+#endif // GAMEINPUT_API_VERSION >= 3
+
     return true;
 }
 
@@ -698,10 +707,50 @@ static bool GAMEINPUT_JoystickSetSensorsEnabled(SDL_Joystick *joystick, bool ena
     joystick->hwdata->report_sensors = enabled;
     return true;
 }
-
+static void GAMEINPUT_DrumUpdate(SDL_Joystick *joystick, IGameInputReading *reading, Uint64 timestamp)
+{
+#if GAMEINPUT_API_VERSION >= 3
+    IGameInputRawDeviceReport *rawState;
+    if (reading->GetRawReport(&rawState)) {
+        uint8_t rawData[40];
+        SDL_memset(rawData, 0, sizeof(rawData));
+        size_t len = rawState->GetRawData(sizeof(rawData), rawData);
+        Uint8 hat = 0;
+        uint16_t buttons = rawData[0] | rawData[1] << 8;
+        if (len >= 6) {
+            if ((buttons & 0x0100) || (rawData[4] & 0xf0)) {
+                hat |= SDL_HAT_UP;
+            }
+            if ((buttons & 0x0200) || (rawData[4] & 0x0f)) {
+                hat |= SDL_HAT_DOWN;
+            }
+            if (buttons & 0x0400) {
+                hat |= SDL_HAT_LEFT;
+            }
+            if (buttons & 0x0800) {
+                hat |= SDL_HAT_RIGHT;
+            }
+            SDL_SendJoystickHat(timestamp, joystick, 0, hat);
+            // The rest of the instruments are mapped to PS3 style inputs
+            // The PS3 used flags for dictating if a pad or a cymbal was hit, so we emulate that here
+            SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_BACK, (buttons & 0x0008));
+            SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_START, (buttons & 0x0004));
+            SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, (buttons & 0x1000));
+            SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, (buttons & 0x2000));
+            SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_SOUTH, (rawData[3] & 0x0f) || (rawData[5] & 0xf0) || (buttons & 0x0010));
+            SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_EAST, (rawData[2] & 0xf0) || (buttons & 0x0020));
+            SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_WEST, (rawData[3] & 0xf0) || (rawData[4] & 0x0f) || (buttons & 0x0040));
+            SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_NORTH, (rawData[2] & 0x0f) || (rawData[4] & 0xf0) || (buttons & 0x0080));
+            SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_LEFT_STICK, rawData[2] || rawData[3]);
+            SDL_SendJoystickButton(timestamp, joystick, SDL_GAMEPAD_BUTTON_RIGHT_STICK, rawData[4] || rawData[5]);
+        }
+    }
+#endif // GAMEINPUT_API_VERSION >= 3
+}
 static void GAMEINPUT_GuitarUpdate(SDL_Joystick *joystick, IGameInputReading *reading, Uint64 timestamp)
 {
-    IGameInputRawDeviceReport* rawState;
+#if GAMEINPUT_API_VERSION >= 3
+    IGameInputRawDeviceReport *rawState;
     if (reading->GetRawReport(&rawState)) {
         static WORD s_GuitarButtons[] = {
             0x0010,  // SDL_GAMEPAD_BUTTON_SOUTH
@@ -753,6 +802,7 @@ static void GAMEINPUT_GuitarUpdate(SDL_Joystick *joystick, IGameInputReading *re
             SDL_SendJoystickAxis(timestamp, joystick, SDL_GAMEPAD_AXIS_RIGHTY, effects_mappings[rawData[4] >> 4]);
         }
     }
+#endif // GAMEINPUT_API_VERSION >= 3
 }
 
 static void GAMEINPUT_GamepadUpdate(SDL_Joystick *joystick, IGameInputReading *reading, Uint64 timestamp) {
@@ -895,13 +945,15 @@ static void GAMEINPUT_JoystickUpdate(SDL_Joystick *joystick)
     timestamp = SDL_US_TO_NS(reading->GetTimestamp() + g_GameInputTimestampOffset);
     if (internal_device->raw_type == SDL_GAMEINPUT_RAWTYPE_ROCK_BAND_GUITAR) {
         GAMEINPUT_GuitarUpdate(joystick, reading, timestamp);
+    } else if (internal_device->raw_type == SDL_GAMEINPUT_RAWTYPE_ROCK_BAND_DRUM_KIT) {
+        GAMEINPUT_DrumUpdate(joystick, reading, timestamp);
     } else if (GAMEINPUT_InternalIsGamepad(info)) {
         GAMEINPUT_GamepadUpdate(joystick, reading, timestamp);
     } else {
         GAMEINPUT_ControllerUpdate(joystick, reading, timestamp);
     }
 
-#ifdef GAMEINPUT_SENSOR_SUPPORT
+#if GAMEINPUT_API_VERSION >= 3
     if (hwdata->report_sensors) {
         GameInputSensorsState sensor_state;
 
@@ -924,7 +976,7 @@ static void GAMEINPUT_JoystickUpdate(SDL_Joystick *joystick)
             }
         }
     }
-#endif // GAMEINPUT_SENSOR_SUPPORT
+#endif // GAMEINPUT_API_VERSION >= 3
 
     reading->Release();
 

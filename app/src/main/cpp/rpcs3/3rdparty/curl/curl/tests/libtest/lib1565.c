@@ -23,8 +23,7 @@
  ***************************************************************************/
 #include "first.h"
 
-#ifdef HAVE_PTHREAD_H
-#include <pthread.h>
+#ifdef HAVE_THREADS_POSIX
 
 #define CONN_NUM                3
 #define TIME_BETWEEN_START_SECS 2
@@ -94,7 +93,7 @@ static CURLcode test_lib1565(const char *URL)
   int started_num = 0;
   int finished_num = 0;
   pthread_t tid = 0;
-  bool tid_valid = false;
+  bool tid_valid = FALSE;
   struct CURLMsg *message;
 
   start_test_timing();
@@ -107,7 +106,7 @@ static CURLcode test_lib1565(const char *URL)
 
   rc = pthread_create(&tid, NULL, t1565_run_thread, NULL);
   if(!rc)
-    tid_valid = true;
+    tid_valid = TRUE;
   else {
     curl_mfprintf(stderr, "%s:%d Could not create thread, errno %d\n",
                   __FILE__, __LINE__, rc);
@@ -130,8 +129,8 @@ static CURLcode test_lib1565(const char *URL)
       }
       else {
         curl_mfprintf(stderr,
-                      "%s:%d Got an unexpected message from curl: %i\n",
-                      __FILE__, __LINE__, message->msg);
+                      "%s:%d Got an unexpected message from curl: %d\n",
+                      __FILE__, __LINE__, (int)message->msg);
         result = TEST_ERR_MAJOR_BAD;
         goto test_cleanup;
       }

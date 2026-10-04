@@ -7,9 +7,14 @@
 #include "Crypto/aes.h"
 
 bool is_iso_file(const fs::file& file);
-#ifndef __ANDROID__
 bool is_iso_file(const std::string& path);
-#endif
+// Compatibility overload matching newer upstream call sites (size / raw-device probing unsupported here)
+inline bool is_iso_file(const std::string& path, u64* size, bool* is_raw_device = nullptr)
+{
+	if (size) *size = 0;
+	if (is_raw_device) *is_raw_device = false;
+	return is_iso_file(path);
+}
 #ifdef __ANDROID__
 void load_iso(int fd, int dec_key_fd = -1);
 #else
@@ -174,6 +179,7 @@ private:
 public:
 #ifdef __ANDROID__
     iso_archive(int fd,int dec_key_fd);
+    iso_archive(const std::string& path); // opens by real filesystem path (no content URIs)
     int get_fd() const { return m_fd; }
     int get_dec_key_fd() const { return m_dec_key_fd; }
 #else
@@ -182,6 +188,10 @@ public:
 #endif
     const std::shared_ptr<iso_file_decryption> get_dec() { return m_dec; }
     fs::file& get_file() { return m_file; }
+
+    const iso_fs_node& root() const { return m_root; }
+    void init_android();
+    bool is_valid() const { return !!m_file && m_dec != nullptr; }
 
     iso_fs_node* retrieve(const std::string& path);
     bool exists(const std::string& path);

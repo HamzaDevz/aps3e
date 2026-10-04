@@ -272,7 +272,7 @@ get_first_free_port() {
         if [[ "$ret" -ge 65536 ]]; then
             ret=1024
         fi
-        if ! nc -z "$V4V6_FLAG" $LOCALHOST_FOR_NC "$ret"; then
+        if ! nc -z $V4V6_FLAG $LOCALHOST_FOR_NC "$ret"; then
             break
         fi
         ret=$((ret+1))
@@ -298,7 +298,7 @@ if [ ! -f "$ready_file" ]; then
     exit 1
 else
     # should fail if ocspstapling is also enabled
-    OPENSSL_OUTPUT=$(echo "hi" | openssl s_client -status "$V4V6_FLAG" -legacy_renegotiation -connect "${LOCALHOST}:$port1" -cert ./certs/client-cert.pem -key ./certs/client-key.pem -CAfile ./certs/ocsp/root-ca-cert.pem 2>&1)
+    OPENSSL_OUTPUT=$(echo "hi" | openssl s_client -status $V4V6_FLAG -legacy_renegotiation -connect "${LOCALHOST}:$port1" -cert ./certs/client-cert.pem -key ./certs/client-key.pem -CAfile ./certs/ocsp/root-ca-cert.pem 2>&1)
     OPENSSL_RESULT=$?
     echo "$OPENSSL_OUTPUT"
     grep -F -q 'self signed certificate in certificate chain' <<< "$OPENSSL_OUTPUT"
@@ -341,7 +341,9 @@ server=login.live.com
 #ca=certs/external/DigiCertGlobalRootCA.pem
 ca=./certs/external/ca_collection.pem
 
-if [[ "$V4V6" == "4" ]]; then
+if [[ -z "${WOLFSSL_EXTERNAL_TEST-}" || "$WOLFSSL_EXTERNAL_TEST" == "0" ]]; then
+    echo "Skipping OCSP test on $server (set WOLFSSL_EXTERNAL_TEST=1 to run)"
+elif [[ "$V4V6" == "4" ]]; then
     retry_with_backoff 3 ./examples/client/client -C -h "$server" -p 443 -A "$ca" -g -W 1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "\n\nClient connection failed" && exit 1
@@ -361,8 +363,8 @@ fi
 # purposes!
 openssl ocsp -port "$port2" -nmin 1                               \
     -index   certs/ocsp/index-intermediate1-ca-issued-certs.txt \
-    -rsigner certs/ocsp/ocsp-responder-cert.pem                 \
-    -rkey    certs/ocsp/ocsp-responder-key.pem                  \
+    -rsigner certs/ocsp/ocsp-responder-int1-cert.pem            \
+    -rkey    certs/ocsp/ocsp-responder-int1-key.pem             \
     -CA      certs/ocsp/intermediate1-ca-cert.pem               \
     "$@" &
 
@@ -534,7 +536,7 @@ generate_port() {
 
 # Start OpenSSL server that has no OCSP responses to return
 generate_port
-openssl s_server "$V4V6_FLAG" -cert ./certs/server-cert.pem -key certs/server-key.pem -www -port "$port" &
+openssl s_server $V4V6_FLAG -cert ./certs/server-cert.pem -key certs/server-key.pem -www -port "$port" &
 MAX_TIMEOUT=10
 until nc -z localhost "$port" # Wait for openssl to be ready
 do

@@ -79,8 +79,8 @@ static CURLcode test_cli_h2_upgrade_extreme(const char *URL)
       curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
       curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
       curl_msnprintf(range, sizeof(range),
-                     "%" CURL_FORMAT_CURL_OFF_TU "-"
-                     "%" CURL_FORMAT_CURL_OFF_TU,
+                     "%" CURL_FORMAT_CURL_OFF_T "-"
+                     "%" CURL_FORMAT_CURL_OFF_T,
                      (curl_off_t)0,
                      (curl_off_t)16384);
       curl_easy_setopt(curl, CURLOPT_RANGE, range);
@@ -126,7 +126,7 @@ static CURLcode test_cli_h2_upgrade_extreme(const char *URL)
         }
         else if(msg->data.result) {
           curl_mfprintf(stderr, "transfer #%" CURL_FORMAT_CURL_OFF_T
-                        ": failed with %d\n", xfer_id, msg->data.result);
+                        ": failed with %d\n", xfer_id, (int)msg->data.result);
           goto cleanup;
         }
         else if(status != 206) {
@@ -137,7 +137,7 @@ static CURLcode test_cli_h2_upgrade_extreme(const char *URL)
         }
         curl_multi_remove_handle(multi, msg->easy_handle);
         curl_easy_cleanup(msg->easy_handle);
-        curl_mfprintf(stderr, "transfer #%" CURL_FORMAT_CURL_OFF_T" retiring "
+        curl_mfprintf(stderr, "transfer #%" CURL_FORMAT_CURL_OFF_T " retiring "
                       "(%d now running)\n", xfer_id, running_handles);
       }
     }

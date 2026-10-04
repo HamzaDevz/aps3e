@@ -6,13 +6,23 @@
 #if defined(DECL_VK_FUNCTION)
 #define VK_FUNC(func) extern PFN_##func _##func
 #elif defined(DEF_VK_FUNCTION)
+#ifdef _WIN32
+// On Windows we link against the system vulkan-1 loader directly, so the
+// pointers can be statically initialized here. This is required because some
+// code paths (e.g. GUI adapter enumeration in instance.cpp) run before
+// vk::init_base_pfn() would ever be called.
+#define VK_FUNC(func) PFN_##func _##func = reinterpret_cast<PFN_##func>(&func)
+#else
 #define VK_FUNC(func) PFN_##func _##func
+#endif
 #elif defined(LOAD_VK_FUNCTION)
 
 #if __ANDROID__
 #define VK_FUNC(func) _##func=reinterpret_cast<PFN_##func>(dlsym(vk_lib_handle, #func))
 #elif _WIN32
-#define VK_FUNC(func) _##func=reinterpret_cast<PFN_##func>(##func)
+// Pointers are statically initialized on Windows (see DEF_VK_FUNCTION above);
+// re-assigning here is harmless but kept for symmetry.
+#define VK_FUNC(func) _##func=reinterpret_cast<PFN_##func>(&func)
 #else
 #error ""
 #endif
@@ -214,6 +224,17 @@ VK_FUNC(vkGetPhysicalDeviceFeatures2);
 
 #ifndef DBG_ADRENO_GPU_MEM
 #if defined(DECL_VK_FUNCTION)||defined(DEF_VK_FUNCTION)||defined(CLEAR_N_VK_FUNCTION)||defined(PRINT_N_VK_FUNCTION)
+
+// Extension functions (VKPFNTableEXT.h) are NOT statically exported by the
+// vulkan-1 loader on Windows, so they must never receive static
+// initialization. They are filled at runtime by vk::init_instance_pfn() /
+// vk::init_device_pfn(). Override VK_FUNC back to the non-initializing
+// definition for the extension table.
+#if defined(DEF_VK_FUNCTION) && defined(_WIN32)
+#undef VK_FUNC
+#define VK_FUNC(func) PFN_##func _##func
+#endif
+
 #define INSTANCE_VK_FUNCTION
 #define DEVICE_VK_FUNCTION
 #include "VKPFNTableEXT.h"

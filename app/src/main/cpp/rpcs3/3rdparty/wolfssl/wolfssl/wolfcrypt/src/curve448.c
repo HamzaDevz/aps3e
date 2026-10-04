@@ -25,6 +25,18 @@
  * Reworked for curve448 by Sean Parkinson.
  */
 
+/*
+ * Curve448 Build Options:
+ *
+ * HAVE_CURVE448:            Enable Curve448 support                default: off
+ * HAVE_CURVE448_SHARED_SECRET: Enable Curve448 shared secret      default: on
+ *                            (when HAVE_CURVE448 is enabled)
+ * HAVE_CURVE448_KEY_EXPORT: Enable Curve448 key export            default: on
+ * HAVE_CURVE448_KEY_IMPORT: Enable Curve448 key import            default: on
+ * WOLFSSL_NO_ECDHX_SHARED_ZERO_CHECK: Skip ECDH shared secret != 0 check
+ *                                                                  default: off
+ */
+
 #include <wolfssl/wolfcrypt/libwolfssl_sources.h>
 
 #ifdef HAVE_CURVE448
@@ -165,7 +177,7 @@ int wc_curve448_shared_secret_ex(curve448_key* private_key,
     if (ret == 0) {
         ret = curve448(o, private_key->k, public_key->p);
     }
-#ifdef WOLFSSL_ECDHX_SHARED_NOT_ZERO
+#ifndef WOLFSSL_NO_ECDHX_SHARED_ZERO_CHECK
     if (ret == 0) {
         byte t = 0;
         for (i = 0; i < CURVE448_PUB_KEY_SIZE; i++) {
@@ -465,6 +477,10 @@ int wc_curve448_export_private_raw_ex(curve448_key* key, byte* out,
     /* sanity check */
     if ((key == NULL) || (out == NULL) || (outLen == NULL)) {
         ret = BAD_FUNC_ARG;
+    }
+
+    if ((ret == 0) && (!key->privSet)) {
+        ret = ECC_BAD_ARG_E;
     }
 
     /* check size of outgoing buffer */

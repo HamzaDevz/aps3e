@@ -1855,6 +1855,7 @@ void TShader::setUniformLocationBase(int base)
 {
     intermediate->setUniformLocationBase(base);
 }
+void TShader::setBindingsPerResourceType() { intermediate->setBindingsPerResourceType(); }
 void TShader::setNoStorageFormat(bool useUnknownFormat) { intermediate->setNoStorageFormat(useUnknownFormat); }
 void TShader::setResourceSetBinding(const std::vector<std::string>& base)   { intermediate->setResourceSetBinding(base); }
 void TShader::setTextureSamplerTransformMode(EShTextureSamplerTransformMode mode) { intermediate->setTextureSamplerTransformMode(mode); }
@@ -2200,6 +2201,7 @@ bool TProgram::buildReflection(int opts)
 }
 
 unsigned TProgram::getLocalSize(int dim) const                        { return reflection->getLocalSize(dim); }
+unsigned TProgram::getTileShadingRateQCOM(int dim) const              { return reflection->getTileShadingRateQCOM(dim); }
 int TProgram::getReflectionIndex(const char* name) const              { return reflection->getIndex(name); }
 int TProgram::getReflectionPipeIOIndex(const char* name, const bool inOrOut) const
                                                                       { return reflection->getPipeIOIndex(name, inOrOut); }

@@ -31,6 +31,25 @@
 /* forward declarations */
 struct UserDefined;
 
+/* Bits on the io_flags member of SingleRequest */
+#define REQ_IO_RECV       (1 << 0) /* there is or may be data to read */
+#define REQ_IO_SEND       (1 << 1) /* there is or may be data to write */
+
+/* Low level request receive/send io_flags checks. */
+#define CURL_REQ_WANT_SEND(d)  ((d)->req.io_flags & REQ_IO_SEND)
+#define CURL_REQ_WANT_RECV(d)  ((d)->req.io_flags & REQ_IO_RECV)
+#define CURL_REQ_WANT_IO(d)    \
+  ((d)->req.io_flags & (REQ_IO_RECV | REQ_IO_SEND))
+/* Low level request receive/send io_flags manipulations. */
+#define CURL_REQ_SET_SEND(d)   ((d)->req.io_flags |= REQ_IO_SEND)
+#define CURL_REQ_SET_RECV(d)   ((d)->req.io_flags |= REQ_IO_RECV)
+#define CURL_REQ_CLEAR_SEND(d) \
+  ((d)->req.io_flags &= (uint8_t)~REQ_IO_SEND)
+#define CURL_REQ_CLEAR_RECV(d) \
+  ((d)->req.io_flags &= (uint8_t)~REQ_IO_RECV)
+#define CURL_REQ_CLEAR_IO(d)  \
+  ((d)->req.io_flags &= (uint8_t)~(REQ_IO_RECV | REQ_IO_SEND))
+
 enum expect100 {
   EXP100_SEND_DATA,           /* enough waiting, send the body now */
   EXP100_AWAITING_CONTINUE,   /* waiting for the 100 Continue header */
@@ -59,6 +78,8 @@ struct SingleRequest {
                              -1 means unlimited */
   curl_off_t bytecount;         /* total number of bytes read */
   curl_off_t writebytecount;    /* number of bytes written */
+  curl_off_t offset;            /* possible resume offset read from the
+                                   Content-Range: header */
 
   struct curltime start;         /* transfer started at this time */
   unsigned int headerbytecount;  /* received server headers (not CONNECT
@@ -72,21 +93,24 @@ struct SingleRequest {
                                      in a CURLE_GOT_NOTHING error code */
   int headerline;               /* counts header lines to better track the
                                    first one */
-  curl_off_t offset;            /* possible resume offset read from the
-                                   Content-Range: header */
   int httpcode;                 /* error code from the 'HTTP/1.? XXX' or
                                    'RTSP/1.? XXX' line */
-  int keepon;
-  unsigned char httpversion_sent; /* Version in request (09, 10, 11, etc.) */
-  unsigned char httpversion;    /* Version in response (09, 10, 11, etc.) */
-  enum upgrade101 upgr101;      /* 101 upgrade state */
+  uint8_t httpversion_sent;     /* Version in request (09, 10, 11, etc.) */
+  uint8_t httpversion;          /* Version in response (09, 10, 11, etc.) */
+  uint8_t upgr101;              /* 101 upgrade state */
+  uint8_t io_flags;             /* REQ_IO_RECV | REQ_IO_SEND */
 
   /* Client Writer stack, handles transfer- and content-encodings, protocol
    * checks, pausing by client callbacks. */
-  struct Curl_cwriter *writer_stack;
+  struct {
+    struct Curl_cwriter *stack;
+    BIT(paused);
+  } writer;
   /* Client Reader stack, handles transfer- and content-encodings, protocol
    * checks, pausing by client callbacks. */
-  struct Curl_creader *reader_stack;
+  struct {
+    struct Curl_creader *stack;
+  } reader;
   struct bufq sendbuf; /* data which needs to be send to the server */
   size_t sendbuf_hds_len; /* amount of header bytes in sendbuf */
   time_t timeofdoc;
@@ -95,6 +119,13 @@ struct SingleRequest {
   char *newurl;     /* Set to the new URL to use when a redirect or a retry is
                        wanted */
 
+  char *hd_auth;      /* Authorization header, full HTTP/1.x line */
+#ifndef CURL_DISABLE_PROXY
+  char *hd_proxy_auth; /* Proxy-Authorization header, full HTTP/1.x line */
+#endif
+#ifndef CURL_DISABLE_COOKIES
+  char *cookiehost;
+#endif
 #ifndef CURL_DISABLE_COOKIES
   unsigned char setcookies;
 #endif
@@ -109,8 +140,8 @@ struct SingleRequest {
   BIT(eos_sent);      /* iff EOS has been sent to the server */
   BIT(rewind_read);   /* iff reader needs rewind at next start */
   BIT(upload_done);   /* set to TRUE when all request data has been sent */
-  BIT(upload_aborted); /* set to TRUE when upload was aborted. Will also
-                        * show `upload_done` as TRUE. */
+  BIT(upload_aborted); /* set to TRUE when upload was aborted. Also
+                        * shows `upload_done` as TRUE. */
   BIT(ignorebody);    /* we read a response-body but we ignore it! */
   BIT(http_bodyless); /* HTTP response status code is between 100 and 199,
                          204 or 304 */
@@ -207,13 +238,13 @@ bool Curl_req_sendbuf_empty(struct Curl_easy *data);
 
 /**
  * Stop sending any more request data to the server.
- * Will clear the send buffer and mark request sending as done.
+ * Clear the send buffer and mark request sending as done.
  */
 CURLcode Curl_req_abort_sending(struct Curl_easy *data);
 
 /**
  * Stop sending and receiving any more request data.
- * Will abort sending if not done.
+ * Abort sending if not done.
  */
 CURLcode Curl_req_stop_send_recv(struct Curl_easy *data);
 

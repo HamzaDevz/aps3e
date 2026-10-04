@@ -46,11 +46,21 @@ endif()
 
 set(_zstd_pc_requires "libzstd")
 
-if(CURL_USE_PKGCONFIG AND
-   NOT DEFINED ZSTD_INCLUDE_DIR AND
+if(NOT DEFINED ZSTD_INCLUDE_DIR AND
    NOT DEFINED ZSTD_LIBRARY)
-  find_package(PkgConfig QUIET)
-  pkg_check_modules(_zstd ${_zstd_pc_requires})
+  if(CURL_USE_PKGCONFIG)
+    find_package(PkgConfig QUIET)
+    pkg_check_modules(_zstd ${_zstd_pc_requires})
+  endif()
+  if(NOT _zstd_FOUND AND CURL_USE_CMAKECONFIG)
+    find_package(zstd CONFIG QUIET)
+    # Only use if 1.4.5 or greater
+    if(zstd_CONFIG AND
+       NOT TARGET zstd::libzstd_static AND
+       NOT TARGET zstd::libzstd_shared)
+      unset(zstd_CONFIG)
+    endif()
+  endif()
 endif()
 
 if(_zstd_FOUND)
@@ -64,6 +74,18 @@ if(_zstd_FOUND)
     set(_zstd_LIBRARIES    "${_zstd_STATIC_LIBRARIES}")
   endif()
   message(STATUS "Found Zstd (via pkg-config): ${_zstd_INCLUDE_DIRS} (found version \"${ZSTD_VERSION}\")")
+elseif(zstd_CONFIG)
+  set(Zstd_FOUND TRUE)
+  set(ZSTD_FOUND TRUE)
+  set(ZSTD_VERSION ${zstd_VERSION})
+  if(ZSTD_USE_STATIC_LIBS)
+    set(_zstd_LIBRARIES zstd::libzstd_static)
+  elseif(TARGET zstd::libzstd)
+    set(_zstd_LIBRARIES zstd::libzstd)  # 1.5.6+
+  else()
+    set(_zstd_LIBRARIES zstd::libzstd_shared)
+  endif()
+  message(STATUS "Found Zstd (via CMake Config): ${zstd_CONFIG} (found version \"${ZSTD_VERSION}\")")
 else()
   find_path(ZSTD_INCLUDE_DIR NAMES "zstd.h")
   if(ZSTD_USE_STATIC_LIBS)
@@ -110,10 +132,6 @@ else()
 endif()
 
 if(ZSTD_FOUND)
-  if(CMAKE_VERSION VERSION_LESS 3.13)
-    link_directories(${_zstd_LIBRARY_DIRS})
-  endif()
-
   if(NOT TARGET CURL::zstd)
     add_library(CURL::zstd INTERFACE IMPORTED)
     set_target_properties(CURL::zstd PROPERTIES

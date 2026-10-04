@@ -46,6 +46,7 @@ endif()
 if(_libgsasl_FOUND)
   set(Libgsasl_FOUND TRUE)
   set(LIBGSASL_FOUND TRUE)
+  set(LIBGSASL_VERSION ${_libgsasl_VERSION})
   message(STATUS "Found Libgsasl (via pkg-config): ${_libgsasl_INCLUDE_DIRS} (found version \"${LIBGSASL_VERSION}\")")
 else()
   find_path(LIBGSASL_INCLUDE_DIR NAMES "gsasl.h")
@@ -79,10 +80,6 @@ else()
 endif()
 
 if(LIBGSASL_FOUND)
-  if(CMAKE_VERSION VERSION_LESS 3.13)
-    link_directories(${_libgsasl_LIBRARY_DIRS})
-  endif()
-
   if(NOT TARGET CURL::libgsasl)
     add_library(CURL::libgsasl INTERFACE IMPORTED)
     set_target_properties(CURL::libgsasl PROPERTIES

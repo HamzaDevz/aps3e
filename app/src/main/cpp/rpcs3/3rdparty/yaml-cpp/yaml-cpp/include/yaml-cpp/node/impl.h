@@ -99,7 +99,7 @@ struct as_if {
     if (!node.m_pNode)
       return fallback;
 
-    T t;
+    T t = fallback;
     if (convert<T>::decode(node, t))
       return t;
     return fallback;
@@ -126,8 +126,8 @@ struct as_if<T, void> {
   const Node& node;
 
   T operator()() const {
-    if (!node.m_pNode)
-      throw_bad_conversion(node.Mark()); // <T>
+    if (!node.m_pNode) // no fallback
+      throw_invalid_node(node.m_invalidKey);
 
     T t;
     if (convert<T>::decode(node, t))
@@ -142,6 +142,8 @@ struct as_if<std::string, void> {
   const Node& node;
 
   std::string operator()() const {
+    if (node.Type() == NodeType::Undefined) // no fallback
+      throw_invalid_node(node.m_invalidKey);
     if (node.Type() == NodeType::Null)
       return "null";
     if (node.Type() != NodeType::Scalar)

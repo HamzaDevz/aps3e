@@ -135,6 +135,7 @@ enum class lv2_mp_flag
 	no_uid_gid,
 	strict_get_block_size,
 	cache,
+	reflection,
 
 	__bitset_enum_max
 };
@@ -246,8 +247,8 @@ public:
 
 	lv2_fs_object& operator=(const lv2_fs_object&) = delete;
 
-	// Get the device's root path (e.g. "/dev_hdd0") from a given path
-	// Cut the trail and return it in seccond argument
+	// Get the device's root path (e.g. "dev_hdd0") from a given path
+	// Cut the trail and return it in second argument
 	static std::pair<std::string_view, std::string> get_path_root_and_trail(std::string_view path);
 
 	// Get the device's root path (e.g. "/dev_hdd0") from a given path
@@ -264,14 +265,7 @@ public:
 	static std::array<char, 0x420> get_name(std::string_view filename)
 	{
 		std::array<char, 0x420> name;
-
-		if (filename.size() >= 0x420)
-		{
-			filename = filename.substr(0, 0x420 - 1);
-		}
-
-		filename.copy(name.data(), filename.size());
-		name[filename.size()] = 0;
+		strcpy_trunc(name, filename);
 		return name;
 	}
 
@@ -287,6 +281,8 @@ struct lv2_file final : lv2_fs_object
 	const s32 flags;
 	std::string real_path;
 	const lv2_file_type type;
+	atomic_t<u64> reads_total{};
+	atomic_t<u64> writes_total{};
 
 	// IO Container
 	u32 ct_id{}, ct_used{};
@@ -371,7 +367,7 @@ struct lv2_dir final : lv2_fs_object
 {
 	static constexpr u32 id_type = 2;
 
-	const std::vector<fs::dir_entry> entries;
+	std::vector<fs::dir_entry> entries;
 
 	// Current reading position
 	atomic_t<u64> pos{0};

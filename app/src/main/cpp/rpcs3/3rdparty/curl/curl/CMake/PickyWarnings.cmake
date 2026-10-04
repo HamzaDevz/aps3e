@@ -60,7 +60,9 @@ elseif(BORLAND)
 endif()
 
 if(PICKY_COMPILER)
-  if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
+  # Leave disabled for GCC <4.6, because they lack #pragma features to silence locally.
+  if((CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 4.6) OR
+     CMAKE_C_COMPILER_ID MATCHES "Clang")
 
     # https://clang.llvm.org/docs/DiagnosticsReference.html
     # https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html
@@ -95,7 +97,7 @@ if(PICKY_COMPILER)
     #        to suppress undesired warnings in case -Weverything is passed as a custom option.
 
     # Assume these options always exist with both clang and gcc.
-    # Require clang 3.0 / gcc 2.95 or later.
+    # Require clang 3.0 / gcc 2.95 or greater.
     list(APPEND _picky_enable
       -Wbad-function-cast                  # clang  2.7  gcc  2.95
       -Wconversion                         # clang  2.7  gcc  2.95
@@ -147,7 +149,7 @@ if(PICKY_COMPILER)
       list(APPEND _picky_enable
         ${_picky_common_old}
         -Wconditional-uninitialized        # clang  3.0
-        -Wno-used-but-marked-unused        # clang  2.9            # Triggered by typecheck-gcc.h with clang 14+, dependency headers
+        -Wno-used-but-marked-unused        # clang  2.9            # for typecheck-gcc.h with clang 14+, dependency headers
         -Wshift-sign-overflow              # clang  2.9
         -Wshorten-64-to-32                 # clang  1.0
         -Wformat=2                         # clang  2.7  gcc  4.8
@@ -161,7 +163,7 @@ if(PICKY_COMPILER)
       if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 3.1)
         list(APPEND _picky_enable
           -Wno-covered-switch-default      # clang  3.1            appleclang  3.1  # Annoying to fix or silence
-          -Wno-disabled-macro-expansion    # clang  3.1            appleclang  3.1  # Triggered by curl/curl.h, standard headers
+          -Wno-disabled-macro-expansion    # clang  3.1            appleclang  3.1  # for std headers, and curl/curl.h (rare combos)
         )
         if(MSVC)
           list(APPEND _picky_enable
@@ -213,7 +215,7 @@ if(PICKY_COMPILER)
       if((CMAKE_C_COMPILER_ID STREQUAL "Clang"      AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0) OR
          (CMAKE_C_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 12))
         list(APPEND _picky_enable
-          -Wimplicit-fallthrough           # clang  4.0  gcc  7.0  appleclang  9.0  # We do silencing for clang 10.0 and above only
+          -Wimplicit-fallthrough           # clang  4.0  gcc  7.0  appleclang  9.0  # We do silencing for clang 10.0+ only
           -Wxor-used-as-pow                # clang 10.0  gcc 13.0  appleclang 12.0
         )
       endif()
@@ -248,7 +250,7 @@ if(PICKY_COMPILER)
       if((CMAKE_C_COMPILER_ID STREQUAL "Clang"      AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 19.1) OR
          (CMAKE_C_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 17.0))
         list(APPEND _picky_enable
-          -Wno-format-signedness           # clang 19.1  gcc  5.1  appleclang 17.0  # In clang-cl enums are signed ints by default
+          -Wformat-signedness              # clang 19.1  gcc  5.1  appleclang 17.0  # In clang-cl enums are signed ints by default
         )
       endif()
       if((CMAKE_C_COMPILER_ID STREQUAL "Clang"      AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 21.1) OR
@@ -256,6 +258,7 @@ if(PICKY_COMPILER)
         list(APPEND _picky_enable
           -Warray-compare                  # clang 20.1  gcc 12.0  appleclang 26.4
           -Wc++-hidden-decl                # clang 21.1            appleclang 26.4
+          -Wimplicit-int-enum-cast         # clang 21.1
           -Wjump-misses-init               # clang 21.1  gcc  4.5  appleclang 26.4
           -Wno-implicit-void-ptr-cast      # clang 21.1            appleclang 26.4
           -Wtentative-definition-compat    # clang 21.1            appleclang 26.4
@@ -297,13 +300,14 @@ if(PICKY_COMPILER)
         list(APPEND _picky_enable
           -Wdouble-promotion               # clang  3.6  gcc  4.6  appleclang  6.1
           -Wformat=2                       # clang  2.7  gcc  4.8
+          -Wlogical-op                     #             gcc  4.4
           -Wtrampolines                    #             gcc  4.6
         )
       endif()
       if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 5.0)
         list(APPEND _picky_enable
           -Warray-bounds=2                 # clang  2.9  gcc  5.0 (clang default: -Warray-bounds)
-          -Wno-format-signedness           # clang 19.1  gcc  5.1  appleclang 17.0
+          -Wformat-signedness              # clang 19.1  gcc  5.1  appleclang 17.0
         )
       endif()
       if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 6.0)
@@ -347,7 +351,7 @@ if(PICKY_COMPILER)
       endif()
     endif()
 
-    #
+    # Assemble list of flags
 
     set(_picky_skipped "")
     foreach(_ccopt IN LISTS _picky_enable)
@@ -378,15 +382,6 @@ if(PICKY_COMPILER)
     endforeach()
 
     if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-      if(CMAKE_C_COMPILER_VERSION VERSION_LESS 4.5)
-        # Avoid false positives
-        list(APPEND _picky "-Wno-shadow")
-        list(APPEND _picky "-Wno-unreachable-code")
-      endif()
-      if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 4.2 AND CMAKE_C_COMPILER_VERSION VERSION_LESS 4.6)
-        # GCC <4.6 do not support #pragma to suppress warnings locally. Disable them globally instead.
-        list(APPEND _picky "-Wno-overlength-strings")
-      endif()
       if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 4.0 AND CMAKE_C_COMPILER_VERSION VERSION_LESS 4.7)
         list(APPEND _picky "-Wno-missing-field-initializers")  # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=36750
       endif()
@@ -397,7 +392,7 @@ if(PICKY_COMPILER)
         list(APPEND _picky "-Wno-conversion")  # Avoid false positives
       endif()
     endif()
-  elseif(MSVC AND MSVC_VERSION LESS_EQUAL 1950)  # Skip for untested/unreleased newer versions
+  elseif(MSVC AND MSVC_VERSION LESS_EQUAL 1951)  # Enable for tested versions only
     list(APPEND _picky "-Wall")
     list(APPEND _picky "-wd4061")  # enumerator 'A' in switch of enum 'B' is not explicitly handled by a case label
     list(APPEND _picky "-wd4191")  # 'type cast': unsafe conversion from 'FARPROC' to 'void (__cdecl *)(void)'
@@ -413,7 +408,7 @@ if(PICKY_COMPILER)
     list(APPEND _picky "-wd4746")
     list(APPEND _picky "-wd4820")  # 'A': 'N' bytes padding added after data member 'B'
     if(MSVC_VERSION GREATER_EQUAL 1900)
-      list(APPEND _picky "-wd5045")  # Compiler will insert Spectre mitigation for memory load if /Qspectre switch specified
+      list(APPEND _picky "-wd5045")  # Compiler inserts Spectre mitigation for memory load if /Qspectre switch specified
     endif()
   endif()
 endif()
@@ -436,12 +431,14 @@ if(CMAKE_C_COMPILER_ID STREQUAL "Clang" AND MSVC)
   endforeach()
 endif()
 
-if(CMAKE_C_STANDARD STREQUAL 90 AND CMAKE_C_COMPILER_ID STREQUAL "AppleClang")
-  if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 4.2)
+if(CMAKE_C_STANDARD STREQUAL 90)
+  if((CMAKE_C_COMPILER_ID STREQUAL "Clang"      AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 3.0) OR
+     (CMAKE_C_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 4.2))
     list(APPEND _picky "-Wno-c99-extensions")  # Avoid: warning: '_Bool' is a C99 extension
   endif()
-  if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 8.1)
-    list(APPEND _picky "-Wno-comma")  # Just silly
+  if((CMAKE_C_COMPILER_ID STREQUAL "Clang"      AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 3.9) OR
+     (CMAKE_C_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 8.1))
+    list(APPEND _picky "-Wno-comma")  # Silly
   endif()
 endif()
 
@@ -454,6 +451,9 @@ if(_picky_nocheck OR _picky)
   string(REPLACE ";" " " _picky_tmp "${_picky_tmp}")
   string(STRIP "${_picky_tmp}" _picky_tmp)
   message(STATUS "Picky compiler options: ${_picky_tmp}")
+  if(_CURL_SAVE_PICKY_OPTIONS)
+    file(WRITE "${PROJECT_BINARY_DIR}/picky-options.txt" "${_picky_tmp}")
+  endif()
   set_property(DIRECTORY APPEND PROPERTY COMPILE_OPTIONS "${_picky_nocheck}" "${_picky}")
 
   # Apply to all feature checks

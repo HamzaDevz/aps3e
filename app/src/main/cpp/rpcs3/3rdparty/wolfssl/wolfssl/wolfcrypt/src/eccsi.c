@@ -36,14 +36,6 @@
     #include <wolfssl/wolfcrypt/sp.h>
 #endif
 
-#if defined(WOLFSSL_USE_SAVE_VECTOR_REGISTERS) && !defined(WOLFSSL_SP_ASM)
-    /* force off unneeded vector register save/restore. */
-    #undef SAVE_VECTOR_REGISTERS
-    #define SAVE_VECTOR_REGISTERS(fail_clause) SAVE_NO_VECTOR_REGISTERS(fail_clause)
-    #undef RESTORE_VECTOR_REGISTERS
-    #define RESTORE_VECTOR_REGISTERS() RESTORE_NO_VECTOR_REGISTERS()
-#endif
-
 #ifndef WOLFSSL_HAVE_ECC_KEY_GET_PRIV
     /* FIPS build has replaced ecc.h. */
     #define wc_ecc_key_get_priv(key) (&((key)->k))
@@ -1507,8 +1499,6 @@ int wc_ValidateEccsiPair(EccsiKey* key, enum wc_HashType hashType,
     if (err != 0)
         return err;
 
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
-
     params = &key->params;
     hs = &key->tmp;
     res = &key->pubkey.pubkey;
@@ -1562,8 +1552,6 @@ int wc_ValidateEccsiPair(EccsiKey* key, enum wc_HashType hashType,
             *valid = (wc_ecc_cmp_point(res, kpak) == MP_EQ);
         }
     }
-
-    RESTORE_VECTOR_REGISTERS();
 
     return err;
 }
@@ -2159,6 +2147,18 @@ static int eccsi_calc_j(EccsiKey* key, const mp_int* hem, const byte* sig,
     if (err == 0) {
         err = eccsi_decode_sig_s(key, sig, sigSz, s);
     }
+    /* Validate s is in [1, q-1]: reject zero or out-of-range second signature
+     * component.  With s=0, [s](...) yields the point at infinity whose
+     * affine x-coordinate is 0, making the final mp_cmp(0,0) accept any
+     * forged signature. */
+    if (err == 0) {
+        if (mp_iszero(s)) {
+            err = MP_ZERO_E;
+        }
+        else if (mp_cmp(s, &key->params.order) != MP_LT) {
+            err = ECC_OUT_OF_RANGE_E;
+        }
+    }
     /* [s]( [HE]G + [r]Y ) */
     if (err == 0) {
         err = eccsi_mulmod_point(key, s, j, j, 1);
@@ -2219,8 +2219,6 @@ int wc_VerifyEccsiHash(EccsiKey* key, enum wc_HashType hashType,
     if (err != 0)
         return err;
 
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
-
     /* Decode the signature into components. */
     r = wc_ecc_key_get_priv(&key->pubkey);
     pvt = &key->pubkey.pubkey;
@@ -2236,6 +2234,19 @@ int wc_VerifyEccsiHash(EccsiKey* key, enum wc_HashType hashType,
     if (err == 0) {
         params = &key->params;
         err = mp_montgomery_setup(&params->prime, &mp);
+    }
+
+    /* Validate r is in [1, q-1]: reject zero or out-of-range first signature
+     * component before any scalar multiplication takes place.
+     * Without this check, r=0 causes J_x=0 and the final mp_cmp(0,0)==MP_EQ
+     * comparison accepts the forged signature unconditionally. */
+    if (err == 0) {
+        if (mp_iszero(r)) {
+            err = MP_ZERO_E;
+        }
+        else if (mp_cmp(r, &params->order) != MP_LT) {
+            err = ECC_OUT_OF_RANGE_E;
+        }
     }
 
     /* Step 1: Validate PVT is on curve */
@@ -2273,6 +2284,16 @@ int wc_VerifyEccsiHash(EccsiKey* key, enum wc_HashType hashType,
         key->params.haveBase = 0;
     }
 
+    /* Defense-in-depth: reject J = point at infinity before the final
+     * comparison. Catches any future path that might reach this point
+     * with a neutral-element result (e.g. s = 0 mod q for a non-zero
+     * encoded s). */
+    if (err == 0) {
+        if (wc_ecc_point_is_at_infinity(j)) {
+            err = ECC_INF_E;
+        }
+    }
+
     /* Step 6: Jx fitting, compare with r */
     if (err == 0) {
         jx = &key->tmp;
@@ -2282,8 +2303,6 @@ int wc_VerifyEccsiHash(EccsiKey* key, enum wc_HashType hashType,
     if (verified != NULL) {
         *verified = ((err == 0) && (mp_cmp(jx, r) == MP_EQ));
     }
-
-    RESTORE_VECTOR_REGISTERS();
 
     return err;
 }

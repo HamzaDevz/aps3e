@@ -4,7 +4,6 @@
 <keywords>
 multi
 HTTP
-flaky
 </keywords>
 </info>
 
@@ -29,6 +28,9 @@ Funny-head: yesyes
 
 # Client-side
 <client>
+<features>
+wakeup
+</features>
 <server>
 http
 </server>

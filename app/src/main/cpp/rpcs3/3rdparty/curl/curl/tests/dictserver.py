@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 #***************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
@@ -26,9 +25,6 @@
 #
 """DICT server."""
 
-from __future__ import (absolute_import, division, print_function,
-                        unicode_literals)
-
 import argparse
 import logging
 import os
@@ -40,6 +36,7 @@ try:  # Python 2
     import SocketServer as socketserver  # type: ignore
 except ImportError:  # Python 3
     import socketserver
+
 
 log = logging.getLogger(__name__)
 HOST = "localhost"
@@ -97,12 +94,12 @@ class DictHandler(socketserver.BaseRequestHandler):
                 response_data = "No matches"
 
             # Send back a failure to find.
-            response = "552 {0}\n".format(response_data)
+            response = f"552 {response_data}\n"
             log.debug("[DICT] Responding with %r", response)
             self.request.sendall(response.encode("utf-8"))
 
-        except IOError:
-            log.exception("[DICT] IOError hit during request")
+        except OSError:
+            log.exception("[DICT] OSError hit during request")
 
 
 def get_options():
@@ -157,7 +154,7 @@ def setup_logging(options):
         root_logger.addHandler(stdout_handler)
 
 
-class ScriptRC(object):
+class ScriptRC:
     """Enum for script return codes."""
 
     SUCCESS = 0

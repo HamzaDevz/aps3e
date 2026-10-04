@@ -5,8 +5,7 @@
 #include "VKHelpers.h"
 #include "vkutils/device.h"
 #include "../Program/GLSLCommon.h"
-
-extern bool cfg_vertex_buffer_upload_mode_use_buffer_view();
+#include "Emu/system_config.h"
 
 std::string VKVertexDecompilerThread::getFloatTypeName(usz elementCount)
 {
@@ -23,7 +22,7 @@ std::string VKVertexDecompilerThread::getFunction(FUNCTION f)
 	return glsl::getFunctionImpl(f);
 }
 
-std::string VKVertexDecompilerThread::compareFunction(COMPARE f, const std::string &Op0, const std::string &Op1, bool scalar)
+std::string VKVertexDecompilerThread::compareFunction(COMPARE f, std::string_view Op0, std::string_view Op1, bool scalar)
 {
 	return glsl::compareFunctionImpl(f, Op0, Op1, scalar);
 }
@@ -71,12 +70,13 @@ void VKVertexDecompilerThread::prepareBindingTable()
 	}
 }
 
-void VKVertexDecompilerThread::insertHeader(std::stringstream &OS)
+void VKVertexDecompilerThread::insertHeader(std::stringstream& OS)
 {
 	prepareBindingTable();
 
 	OS <<
 		"#version 450\n\n"
+		"#extension GL_EXT_scalar_block_layout : require\n"
 		"#extension GL_ARB_separate_shader_objects : enable\n\n";
 
 	glsl::insert_subheader_block(OS);
@@ -95,7 +95,7 @@ void VKVertexDecompilerThread::insertHeader(std::stringstream &OS)
 		"	vertex_context_t vertex_contexts[];\n"
 		"};\n\n";
 
-	const vk::glsl::program_input context_input
+	vk::glsl::program_input context_input
 	{
 		.domain = glsl::glsl_vertex_program,
 		.type = vk::glsl::input_type_storage_buffer,
@@ -103,7 +103,7 @@ void VKVertexDecompilerThread::insertHeader(std::stringstream &OS)
 		.location = vk_prog->binding_table.context_buffer_location,
 		.name = "VertexContextBuffer"
 	};
-	inputs.push_back(context_input);
+	inputs.push_back(std::move(context_input));
 
 	if (m_device_props.emulate_conditional_rendering)
 	{
@@ -113,7 +113,7 @@ void VKVertexDecompilerThread::insertHeader(std::stringstream &OS)
 			"	uint cr_predicate_value;\n"
 			"};\n\n";
 
-		const vk::glsl::program_input predicate_input
+		vk::glsl::program_input predicate_input
 		{
 			.domain = glsl::glsl_vertex_program,
 			.type = vk::glsl::input_type_storage_buffer,
@@ -121,7 +121,7 @@ void VKVertexDecompilerThread::insertHeader(std::stringstream &OS)
 			.location = vk_prog->binding_table.cr_pred_buffer_location,
 			.name = "EXT_Conditional_Rendering"
 		};
-		inputs.push_back(predicate_input);
+		inputs.push_back(std::move(predicate_input));
 	}
 
 	OS <<
@@ -130,7 +130,7 @@ void VKVertexDecompilerThread::insertHeader(std::stringstream &OS)
 		"	draw_parameters_t draw_parameters[];\n"
 		"};\n\n";
 
-	const vk::glsl::program_input layouts_input
+	vk::glsl::program_input layouts_input
 	{
 		.domain = glsl::glsl_vertex_program,
 		.type = vk::glsl::input_type_storage_buffer,
@@ -138,7 +138,7 @@ void VKVertexDecompilerThread::insertHeader(std::stringstream &OS)
 		.location = vk_prog->binding_table.vertex_buffers_location + 2,
 		.name = "DrawParametersBuffer"
 	};
-	inputs.push_back(layouts_input);
+	inputs.push_back(std::move(layouts_input));
 
 	OS <<
 		"layout(push_constant) uniform push_constants_block\n"
@@ -146,7 +146,7 @@ void VKVertexDecompilerThread::insertHeader(std::stringstream &OS)
 		"	uint draw_parameters_offset;\n"
 		"};\n\n";
 
-	const vk::glsl::program_input push_constants
+	vk::glsl::program_input push_constants
 	{
 		.domain = glsl::glsl_vertex_program,
 		.type = vk::glsl::input_type_push_constant,
@@ -155,7 +155,7 @@ void VKVertexDecompilerThread::insertHeader(std::stringstream &OS)
 		.location = umax,
 		.name = "push_constants_block"
 	};
-	inputs.push_back(push_constants);
+	inputs.push_back(std::move(push_constants));
 }
 
 void VKVertexDecompilerThread::insertInputs(std::stringstream& OS, const std::vector<ParamType>& /*inputs*/)
@@ -166,31 +166,34 @@ void VKVertexDecompilerThread::insertInputs(std::stringstream& OS, const std::ve
 		"volatile_input_stream"      // Data stream with per-draw data (registers and immediate draw data)
 	};
 
-    const bool use_buffer_view = cfg_vertex_buffer_upload_mode_use_buffer_view();
+	extern bool cfg_vertex_buffer_upload_mode_use_buffer_view();
+
+	const bool use_buffer_view = cfg_vertex_buffer_upload_mode_use_buffer_view();
+
 	u32 location = vk_prog->binding_table.vertex_buffers_location;
 	for (const auto& stream : input_streams)
 	{
-        if(use_buffer_view)
-            OS << "layout(set=0, binding=" << location << ") uniform usamplerBuffer " << stream << ";\n";
-        else
-            OS<< "layout(std430,set=0, binding=" << location << ")  readonly buffer "<< stream <<"_t{uint "<<stream<<"[];};\n";
+		if (use_buffer_view)
+			OS << "layout(set=0, binding=" << location << ") uniform usamplerBuffer " << stream << ";\n";
+		else
+			OS << "layout(std430,set=0, binding=" << location << ")  readonly buffer " << stream << "_t{uint " << stream << "[];};\n";
 
-
-        const vk::glsl::program_input input
+		this->inputs.push_back(vk::glsl::program_input
 		{
 			.domain = glsl::glsl_vertex_program,
-			.type = use_buffer_view?vk::glsl::input_type_texel_buffer:vk::glsl::input_type_storage_buffer,
+							.type = use_buffer_view ? vk::glsl::input_type_texel_buffer : vk::glsl::input_type_storage_buffer,
 			.set = vk::glsl::binding_set_index_vertex,
 			.location = location++,
 			.name = stream
-		};
-		this->inputs.push_back(input);
+		});
 	}
-    if(use_buffer_view)
-        OS << "#define FETCH_FROM_TEXEL\n";
-}
 
-void VKVertexDecompilerThread::insertConstants(std::stringstream & OS, const std::vector<ParamType> & constants)
+    // RSXVertexFetch.glsl picks texelFetch vs SSBO indexing based on this macro;
+    // it must stay in sync with the declaration mode above or shader compilation fails.
+    if (use_buffer_view)
+        OS << "#define FETCH_FROM_TEXEL\n";
+ }
+void VKVertexDecompilerThread::insertConstants(std::stringstream& OS, const std::vector<ParamType>& constants)
 {
 	vk::glsl::program_input in
 	{
@@ -315,8 +318,12 @@ void VKVertexDecompilerThread::insertOutputs(std::stringstream& OS, const std::v
 	{
 		if (i.need_declare)
 		{
-			// All outputs must be declared always to allow setting default values
-			OS << "layout(location=" << vk::get_varying_register_location(i.name) << ") out vec4 " << i.name << ";\n";
+			// All outputs must be declared always to allow setting default values.
+			// NV4097_SET_SHADE_MODE applies to the front/back diffuse and specular colors.
+			const bool flat_color = (m_prog.ctrl & RSX_SHADER_CONTROL_FLAT_SHADING) &&
+				(i.name.starts_with("diff_color"sv) || i.name.starts_with("spec_color"sv));
+			OS << "layout(location=" << vk::get_varying_register_location(i.name) << ") out "
+				<< (flat_color ? "flat " : "") << "vec4 " << i.name << ";\n";
 		}
 	}
 
@@ -338,7 +345,7 @@ void VKVertexDecompilerThread::insertFSExport(std::stringstream& OS)
 		"}\n\n";
 }
 
-void VKVertexDecompilerThread::insertMainStart(std::stringstream & OS)
+void VKVertexDecompilerThread::insertMainStart(std::stringstream& OS)
 {
 	glsl::shader_properties properties2{};
 	properties2.domain = glsl::glsl_vertex_program;
@@ -396,9 +403,9 @@ void VKVertexDecompilerThread::insertMainStart(std::stringstream & OS)
 	OS << "{\n";
 
 	//Declare temporary registers, ignoring those mapped to outputs
-	for (const ParamType &PT : m_parr.params[PF_PARAM_NONE])
+	for (const ParamType& PT : m_parr.params[PF_PARAM_NONE])
 	{
-		for (const ParamItem &PI : PT.items)
+		for (const ParamItem& PI : PT.items)
 		{
 			if (PI.name.starts_with("dst_reg"))
 				continue;
@@ -411,9 +418,9 @@ void VKVertexDecompilerThread::insertMainStart(std::stringstream & OS)
 		}
 	}
 
-	for (const ParamType &PT : m_parr.params[PF_PARAM_IN])
+	for (const ParamType& PT : m_parr.params[PF_PARAM_IN])
 	{
-		for (const ParamItem &PI : PT.items)
+		for (const ParamItem& PI : PT.items)
 		{
 			OS << "	vec4 " << PI.name << "= read_location(" << std::to_string(PI.location) << ");\n";
 		}
@@ -422,7 +429,7 @@ void VKVertexDecompilerThread::insertMainStart(std::stringstream & OS)
 	OS << "\nuint xform_constants_offset = get_draw_params().xform_constants_offset;\n\n";
 }
 
-void VKVertexDecompilerThread::insertMainEnd(std::stringstream & OS)
+void VKVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
 {
 	OS << "}\n\n";
 
@@ -501,6 +508,8 @@ VKVertexProgram::~VKVertexProgram()
 
 void VKVertexProgram::Decompile(const RSXVertexProgram& prog)
 {
+	m_ctrl = prog.ctrl;
+
 	std::string source;
 	VKVertexDecompilerThread decompiler(prog, source, parr, *this);
 	decompiler.Task();

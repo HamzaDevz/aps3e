@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 #***************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
@@ -28,10 +26,9 @@ import difflib
 import filecmp
 import logging
 import os
+
 import pytest
-
-from testenv import Env, CurlClient, Sshd
-
+from testenv import CurlClient, Env, Sshd
 
 log = logging.getLogger(__name__)
 
@@ -42,10 +39,10 @@ class TestScp:
 
     @pytest.fixture(autouse=True, scope='class')
     def _class_scope(self, env, sshd):
-        env.make_data_file(indir=sshd.home_dir, fname="data-10k", fsize=10*1024)
-        env.make_data_file(indir=sshd.home_dir, fname="data-10m", fsize=10*1024*1024)
-        env.make_data_file(indir=env.gen_dir, fname="data-10k", fsize=10*1024)
-        env.make_data_file(indir=env.gen_dir, fname="data-10m", fsize=10*1024*1024)
+        env.make_data_file(indir=sshd.home_dir, fname="data-10k", fsize=10 * 1024)
+        env.make_data_file(indir=sshd.home_dir, fname="data-10m", fsize=10 * 1024 * 1024)
+        env.make_data_file(indir=env.gen_dir, fname="data-10k", fsize=10 * 1024)
+        env.make_data_file(indir=env.gen_dir, fname="data-10m", fsize=10 * 1024 * 1024)
 
     def test_50_01_insecure(self, env: Env, sshd: Sshd):
         curl = CurlClient(env=env)
@@ -192,8 +189,10 @@ class TestScp:
             dfile = client.download_file(i)
             assert os.path.exists(dfile)
             if complete and not filecmp.cmp(srcfile, dfile, shallow=False):
-                diff = "".join(difflib.unified_diff(a=open(srcfile).readlines(),
-                                                    b=open(dfile).readlines(),
+                with open(srcfile) as fa, open(dfile) as fb:
+                    a = fa.readlines()
+                    b = fb.readlines()
+                diff = "".join(difflib.unified_diff(a=a, b=b,
                                                     fromfile=srcfile,
                                                     tofile=dfile,
                                                     n=1))
@@ -203,8 +202,10 @@ class TestScp:
         assert os.path.exists(srcfile)
         assert os.path.exists(destfile)
         if not filecmp.cmp(srcfile, destfile, shallow=False):
-            diff = "".join(difflib.unified_diff(a=open(srcfile).readlines(),
-                                                b=open(destfile).readlines(),
+            with open(srcfile) as fa, open(destfile) as fb:
+                a = fa.readlines()
+                b = fb.readlines()
+            diff = "".join(difflib.unified_diff(a=a, b=b,
                                                 fromfile=srcfile,
                                                 tofile=destfile,
                                                 n=1))

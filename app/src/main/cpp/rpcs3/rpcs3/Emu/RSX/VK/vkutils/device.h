@@ -44,6 +44,7 @@ namespace vk
 	struct descriptor_indexing_features
 	{
 		bool supported = false;
+		bool partially_bound_supported = false;
 		u64 update_after_bind_mask = 0;
 
 		descriptor_indexing_features(bool supported = false)
@@ -103,6 +104,7 @@ namespace vk
 			bool extended_device_fault = false;
 			bool texture_compression_bc = false;
 			bool portability = false;
+			bool provoking_vertex_last = false;
 		} optional_features_support;
 
 		friend class render_device;
@@ -133,6 +135,8 @@ namespace vk
 
 		operator VkPhysicalDevice() const;
 		operator VkInstance() const;
+
+		VkPhysicalDeviceType get_type() const { return props.deviceType; }
 	};
 
 	class render_device
@@ -183,14 +187,16 @@ namespace vk
 		bool get_unrestricted_depth_range_support() const { return pgpu->optional_features_support.unrestricted_depth_range; }
 		bool get_external_memory_host_support() const { return pgpu->optional_features_support.external_memory_host; }
 		bool get_surface_capabilities_2_support() const { return pgpu->optional_features_support.surface_capabilities_2; }
-		bool get_debug_utils_support() const { return g_cfg.video.renderdoc_compatiblity && pgpu->optional_features_support.debug_utils; }
+		bool get_debug_utils_support() const;
 		bool get_framebuffer_loops_support() const { return pgpu->optional_features_support.framebuffer_loops; }
 		bool get_barycoords_support() const { return pgpu->optional_features_support.barycentric_coords; }
 		bool get_synchronization2_support() const { return pgpu->optional_features_support.synchronization_2; }
 		bool get_extended_device_fault_support() const { return pgpu->optional_features_support.extended_device_fault; }
 		bool get_texture_compression_bc_support() const { return pgpu->optional_features_support.texture_compression_bc; }
+		bool get_provoking_vertex_last_support() const { return pgpu->optional_features_support.provoking_vertex_last; }
 
 		u64 get_descriptor_update_after_bind_support() const { return pgpu->descriptor_indexing_support.update_after_bind_mask; }
+		bool get_descriptor_partially_bound_support() const { return pgpu->descriptor_indexing_support.partially_bound_supported; }
 		u32 get_descriptor_max_draw_calls() const { return pgpu->descriptor_max_draw_calls; }
 
 		VkQueue get_present_queue() const { return m_present_queue; }

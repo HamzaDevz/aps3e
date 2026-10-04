@@ -35,6 +35,13 @@
 
 #include <wolfssl/wolfcrypt/port/tropicsquare/tropic01.h>
 
+#ifdef NO_INLINE
+    #include <wolfssl/wolfcrypt/misc.h>
+#else
+    #define WOLFSSL_MISC_INCLUDED
+    #include <wolfcrypt/src/misc.c>
+#endif
+
 static Tropic01CryptoDevCtx g_ctx = {0};
 static lt_handle_t g_h;
 
@@ -163,8 +170,8 @@ static int Tropic01_GetKeyECC(byte* ecckey, int keySlot, word32 keySz)
         return BAD_FUNC_ARG;
 
 
-    /* Check key size */
-    if (keySz != 16 && keySz != 24 && keySz != 32) {
+    /* Check key size: 256-bit */
+    if (keySz != 32) {
         WOLFSSL_MSG_EX(
             "TROPIC01: Get ECC Key: Unsupported key size %u",
             keySz
@@ -244,6 +251,7 @@ int Tropic01_CryptoCb(int devId, wc_CryptoInfo* info, void* ctx)
                 WOLFSSL_MSG_EX(
                     "TROPIC01: CryptoCB: Failed to get ED25519 PRIVkey,ret=%d",
                      ret);
+                ForceZero(info->pk.ed25519sign.key->k, ED25519_PRV_KEY_SIZE);
                 return ret;
             }
             ret = Tropic01_GetKeyECC(
@@ -254,6 +262,7 @@ int Tropic01_CryptoCb(int devId, wc_CryptoInfo* info, void* ctx)
                 WOLFSSL_MSG_EX(
                     "TROPIC01: CryptoCB: Failed to get ED25519 PUBkey,ret=%d",
                      ret);
+                ForceZero(info->pk.ed25519sign.key->k, ED25519_PRV_KEY_SIZE);
                 return ret;
             }
             /* set devId to invalid, so software is used */
@@ -264,6 +273,7 @@ int Tropic01_CryptoCb(int devId, wc_CryptoInfo* info, void* ctx)
                 info->pk.ed25519sign.in, info->pk.ed25519sign.inLen,
                 info->pk.ed25519sign.out, info->pk.ed25519sign.outLen,
                 info->pk.ed25519sign.key);
+            ForceZero(info->pk.ed25519sign.key->k, ED25519_PRV_KEY_SIZE);
 
             /* reset devId */
             info->pk.ed25519sign.key->devId = devId;
@@ -304,6 +314,17 @@ int Tropic01_CryptoCb(int devId, wc_CryptoInfo* info, void* ctx)
 #if !defined(NO_AES)
     #ifdef HAVE_AESGCM
             if (info->cipher.type == WC_CIPHER_AES_GCM) {
+                word32 keyLen = info->cipher.enc
+                    ? info->cipher.aesgcm_enc.aes->keylen
+                    : info->cipher.aesgcm_dec.aes->keylen;
+                if (keyLen != AES_128_KEY_SIZE &&
+                    keyLen != AES_192_KEY_SIZE &&
+                    keyLen != AES_256_KEY_SIZE) {
+                    WOLFSSL_MSG_EX(
+                        "TROPIC01: CryptoCB: invalid AES key length %u",
+                        keyLen);
+                    return BAD_FUNC_ARG;
+                }
                 ret = Tropic01_GetKeyAES(
                         lt_key,
                         TROPIC01_AES_KEY_RMEM_SLOT,
@@ -312,6 +333,7 @@ int Tropic01_CryptoCb(int devId, wc_CryptoInfo* info, void* ctx)
                     WOLFSSL_MSG_EX(
                             "TROPIC01: CryptoCB: Failed to get AES key,ret=%d",
                              ret);
+                    ForceZero(lt_key, sizeof(lt_key));
                     return ret;
                 }
                 ret = Tropic01_GetKeyAES(
@@ -322,12 +344,16 @@ int Tropic01_CryptoCb(int devId, wc_CryptoInfo* info, void* ctx)
                     WOLFSSL_MSG_EX(
                             "TROPIC01: CryptoCB: Failed to get AES IV, ret=%d",
                              ret);
+                    ForceZero(lt_key, sizeof(lt_key));
+                    ForceZero(lt_iv, sizeof(lt_iv));
                     return ret;
                 }
                 if (info->cipher.enc) {
                     ret = wc_AesSetKey(info->cipher.aesgcm_enc.aes, lt_key,
-                                WC_AES_BLOCK_SIZE, lt_iv, AES_ENCRYPTION);
-                     if (ret != 0) {
+                                keyLen, lt_iv, AES_ENCRYPTION);
+                    ForceZero(lt_key, sizeof(lt_key));
+                    ForceZero(lt_iv, sizeof(lt_iv));
+                    if (ret != 0) {
                         WOLFSSL_MSG_EX(
                             "TROPIC01: CryptoCB: Failed to set AES key, ret=%d",
                             ret);
@@ -351,9 +377,10 @@ int Tropic01_CryptoCb(int devId, wc_CryptoInfo* info, void* ctx)
                     info->cipher.aesgcm_enc.aes->devId = devId;
                 }
                 else {
-
                     ret = wc_AesSetKey(info->cipher.aesgcm_dec.aes, lt_key,
-                                WC_AES_BLOCK_SIZE, lt_iv, AES_DECRYPTION);
+                                keyLen, lt_iv, AES_DECRYPTION);
+                    ForceZero(lt_key, sizeof(lt_key));
+                    ForceZero(lt_iv, sizeof(lt_iv));
                     if (ret != 0) {
                         WOLFSSL_MSG_EX(
                             "TROPIC01: CryptoCB: Failed to set AES key, ret=%d",
@@ -381,6 +408,14 @@ int Tropic01_CryptoCb(int devId, wc_CryptoInfo* info, void* ctx)
 #endif /* HAVE_AESGCM */
     #ifdef HAVE_AES_CBC
         if (info->cipher.type == WC_CIPHER_AES_CBC) {
+            word32 keyLen = info->cipher.aescbc.aes->keylen;
+            if (keyLen != AES_128_KEY_SIZE &&
+                keyLen != AES_192_KEY_SIZE &&
+                keyLen != AES_256_KEY_SIZE) {
+                WOLFSSL_MSG_EX(
+                    "TROPIC01: CryptoCB: invalid AES key length %u", keyLen);
+                return BAD_FUNC_ARG;
+            }
             ret = Tropic01_GetKeyAES(
                         lt_key,
                         TROPIC01_AES_KEY_RMEM_SLOT,
@@ -388,6 +423,7 @@ int Tropic01_CryptoCb(int devId, wc_CryptoInfo* info, void* ctx)
             if (ret != 0) {
                 WOLFSSL_MSG_EX(
                     "TROPIC01: CryptoCB: Failed to get AES key,ret=%d", ret);
+                ForceZero(lt_key, sizeof(lt_key));
                 return ret;
             }
             ret = Tropic01_GetKeyAES(
@@ -397,11 +433,15 @@ int Tropic01_CryptoCb(int devId, wc_CryptoInfo* info, void* ctx)
             if (ret != 0) {
                 WOLFSSL_MSG_EX(
                     "TROPIC01: CryptoCB: Failed to get AES IV, ret=%d", ret);
-                    return ret;
-                }
+                ForceZero(lt_key, sizeof(lt_key));
+                ForceZero(lt_iv, sizeof(lt_iv));
+                return ret;
+            }
             if (info->cipher.enc) {
                 ret = wc_AesSetKey(info->cipher.aescbc.aes, lt_key,
-                                WC_AES_BLOCK_SIZE, lt_iv, AES_ENCRYPTION);
+                                keyLen, lt_iv, AES_ENCRYPTION);
+                ForceZero(lt_key, sizeof(lt_key));
+                ForceZero(lt_iv, sizeof(lt_iv));
                 if (ret != 0) {
                     WOLFSSL_MSG_EX(
                         "TROPIC01: CryptoCB: Failed to set AES key, ret=%d",
@@ -422,7 +462,9 @@ int Tropic01_CryptoCb(int devId, wc_CryptoInfo* info, void* ctx)
             else {
 
                 ret = wc_AesSetKey(info->cipher.aescbc.aes, lt_key,
-                                WC_AES_BLOCK_SIZE, lt_iv, AES_DECRYPTION);
+                                keyLen, lt_iv, AES_DECRYPTION);
+                ForceZero(lt_key, sizeof(lt_key));
+                ForceZero(lt_iv, sizeof(lt_iv));
                 if (ret != 0) {
                     WOLFSSL_MSG_EX(
                         "TROPIC01: CryptoCB: Failed to set AES key, ret=%d",
@@ -466,19 +508,21 @@ int Tropic01_SetPairingKeys(int kIndex, const byte* kPub, const byte* kPriv)
         "TROPIC01: SetPairingKeys: Setting pairing key in slot %d",
         kIndex);
 
+    pk_index = kIndex;
     for (i = 0; i < TROPIC01_PAIRING_KEY_SIZE; i++) {
-
         sh0priv[i] = kPriv[i];
         sh0pub[i] = kPub[i];
     }
 
     WOLFSSL_MSG("TROPIC01: SetPairingKeys: Pairing key set successfully");
+#if 0
     WOLFSSL_MSG_EX(
         "TROPIC01: sh0priv: %02X %02X %02X %02X ...",
         kPriv[0], kPriv[1], kPriv[2], kPriv[3]);
     WOLFSSL_MSG_EX(
         "TROPIC01: sh0pub: %02X %02X %02X %02X ...",
         kPub[0], kPub[1], kPub[2], kPub[3]);
+#endif
     return 0;
 }
 
@@ -486,20 +530,23 @@ int Tropic01_Init(void)
 {
     lt_ret_t ret;
 
-    g_ctx.initialized = 0;
-    ret = lt_init(&g_h);
-    if (ret != LT_OK) {
-        WOLFSSL_MSG_EX("TROPIC01: lt_init failed with a code %d", ret);
-        return WC_HW_E;
+    if (g_ctx.initialized == 0) {
+        ret = lt_init(&g_h);
+        if (ret != LT_OK) {
+            WOLFSSL_MSG_EX("TROPIC01: lt_init failed with a code %d", ret);
+            return WC_HW_E;
+        }
+        ret = verify_chip_and_start_secure_session(&g_h, sh0priv, sh0pub,
+            pk_index);
+        if (ret != LT_OK) {
+            WOLFSSL_MSG_EX("TROPIC01: secure session failed with a code %d",
+                ret);
+            lt_deinit(&g_h);
+            return WC_HW_E;
+        }
+        g_ctx.initialized = 1;
+        WOLFSSL_MSG("TROPIC01: Crypto device initialized successfully");
     }
-    ret = verify_chip_and_start_secure_session(&g_h, sh0priv, sh0pub, pk_index);
-    if (ret != LT_OK) {
-        WOLFSSL_MSG_EX("TROPIC01: secure session failed with a code %d", ret);
-        lt_deinit(&g_h);
-        return WC_HW_E;
-    }
-    g_ctx.initialized = 1;
-    WOLFSSL_MSG("TROPIC01: Crypto device initialized successfully");
 
     return 0;
 }
@@ -517,6 +564,9 @@ int Tropic01_Deinit(void)
         g_ctx.initialized = 0;
         WOLFSSL_MSG("TROPIC01: Crypto device deinitialized successfully");
     }
+
+    ForceZero(sh0priv, sizeof(sh0priv));
+    ForceZero(sh0pub, sizeof(sh0pub));
 
     return 0;
 }

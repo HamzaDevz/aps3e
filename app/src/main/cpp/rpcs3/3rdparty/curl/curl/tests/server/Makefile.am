@@ -54,6 +54,7 @@ $(BUNDLE).c: $(top_srcdir)/scripts/mk-unity.pl Makefile.inc $(FIRST_C) $(UTILS_C
 	@PERL@ $(top_srcdir)/scripts/mk-unity.pl --include $(UTILS_C) $(CURLX_C) $(TOOLX_C) --test $(TESTS_C) > $(BUNDLE).c
 
 noinst_PROGRAMS = $(BUNDLE)
+nodist_servers_SOURCES = $(BUNDLE).c
 LDADD = @CURL_NETWORK_AND_TIME_LIBS@
 CLEANFILES = $(BUNDLE).c
 
@@ -62,11 +63,8 @@ CS_0 = @echo "  RUN     " $@;
 CS_1 =
 CS_ = $(CS_0)
 
-# ignore generated C files since they play by slightly different rules!
 checksrc:
-	$(CHECKSRC)(@PERL@ $(top_srcdir)/scripts/checksrc.pl -D$(srcdir) \
-	  -W$(srcdir)/$(BUNDLE).c \
-	  $(srcdir)/*.[ch])
+	$(CHECKSRC)(@PERL@ $(top_srcdir)/scripts/checksrc.pl -D$(srcdir) -W$(srcdir)/$(BUNDLE).c $(FIRST_C) $(FIRST_H) $(UTILS_C) $(UTILS_H) $(TESTS_C))
 
 if NOT_CURL_CI
 all-local: checksrc

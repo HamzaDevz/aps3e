@@ -27,10 +27,10 @@
 #ifndef GLSLextNV_H
 #define GLSLextNV_H
 
-enum BuiltIn;
-enum Decoration;
-enum Op;
-enum Capability;
+enum class BuiltIn : unsigned;
+enum class Decoration : unsigned;
+enum class Op : unsigned;
+enum class Capability : unsigned;
 
 static const int GLSLextNVVersion = 100;
 static const int GLSLextNVRevision = 11;
@@ -101,4 +101,8 @@ const char* const E_SPV_NV_cluster_acceleration_structure = "SPV_NV_cluster_acce
 
 //SPV_NV_linear_swept_spheres
 const char* const E_SPV_NV_linear_swept_spheres = "SPV_NV_linear_swept_spheres";
+
+//SPV_NV_push_constant_bank
+const char* const E_SPV_NV_push_constant_bank = "SPV_NV_push_constant_bank";
+
 #endif  // #ifndef GLSLextNV_H

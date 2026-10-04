@@ -31,9 +31,6 @@
 #include <wolfssl/wolfcrypt/settings.h>
 
 #undef TEST_OPENSSL_COEXIST /* can't use this option with this example */
-#if defined(OPENSSL_EXTRA) && defined(OPENSSL_COEXIST)
-    #error "Example apps built with OPENSSL_EXTRA can't also be built with OPENSSL_COEXIST."
-#endif
 
 #include <wolfssl/wolfcrypt/wc_port.h>
 
@@ -206,6 +203,7 @@
             #include <zephyr/posix/netdb.h>
             #include <zephyr/posix/sys/socket.h>
             #include <zephyr/posix/sys/select.h>
+            #include <zephyr/posix/arpa/inet.h>
         #endif
     #else
         #include <net/socket.h>
@@ -1236,7 +1234,7 @@ static WC_INLINE void ShowX509Ex(WOLFSSL_X509* x509, const char* hdr,
     XFREE(subject, 0, DYNAMIC_TYPE_OPENSSL);
     XFREE(issuer,  0, DYNAMIC_TYPE_OPENSSL);
 
-#if defined(SHOW_CERTS) && defined(OPENSSL_EXTRA)
+#if defined(SHOW_CERTS) && defined(OPENSSL_EXTRA) && !defined(OPENSSL_COEXIST)
     {
         WOLFSSL_BIO* bio;
         char buf[WC_ASN_NAME_MAX];
@@ -1257,7 +1255,7 @@ static WC_INLINE void ShowX509Ex(WOLFSSL_X509* x509, const char* hdr,
             wolfSSL_BIO_free(bio);
         }
     }
-#endif /* SHOW_CERTS && OPENSSL_EXTRA */
+#endif /* SHOW_CERTS && OPENSSL_EXTRA && !OPENSSL_COEXIST */
 }
 /* original ShowX509 to maintain compatibility */
 static WC_INLINE void ShowX509(WOLFSSL_X509* x509, const char* hdr)
@@ -1306,7 +1304,8 @@ static WC_INLINE void showPeerEx(WOLFSSL* ssl, int lng_index)
 #ifndef NO_DH
     int bits;
 #endif
-#if defined(OPENSSL_EXTRA) && !defined(WOLFCRYPT_ONLY)
+#if defined(OPENSSL_EXTRA) && !defined(WOLFCRYPT_ONLY) && \
+    !defined(OPENSSL_COEXIST)
     int nid;
 #endif
 #ifdef KEEP_PEER_CERT
@@ -1326,7 +1325,8 @@ static WC_INLINE void showPeerEx(WOLFSSL* ssl, int lng_index)
 
     cipher = wolfSSL_get_current_cipher(ssl);
     printf("%s %s\n", words[1], wolfSSL_CIPHER_get_name(cipher));
-#if defined(OPENSSL_EXTRA) && !defined(WOLFCRYPT_ONLY)
+#if defined(OPENSSL_EXTRA) && !defined(WOLFCRYPT_ONLY) && \
+    !defined(OPENSSL_COEXIST)
     if (wolfSSL_get_signature_nid(ssl, &nid) == WOLFSSL_SUCCESS) {
         printf("%s %s\n", words[2], OBJ_nid2sn(nid));
     }
@@ -1670,6 +1670,12 @@ static WC_INLINE void tcp_listen(SOCKET_T* sockfd, word16* port, int useAnyAddr,
         if (res < 0)
             err_sys_with_errno("setsockopt SO_REUSEADDR failed\n");
     }
+/* glibc hides SO_REUSEPORT under strict C99 feature-test visibility
+ * (no _DEFAULT_SOURCE/__USE_MISC). Fall back to the Linux numeric value
+ * so concurrent binds on the same port remain supported. */
+#if defined(__linux__) && !defined(SO_REUSEPORT)
+    #define SO_REUSEPORT 15
+#endif
 #ifdef SO_REUSEPORT
     {
         int       res, on  = 1;
@@ -1692,8 +1698,7 @@ static WC_INLINE void tcp_listen(SOCKET_T* sockfd, word16* port, int useAnyAddr,
         if (listen(*sockfd, SOCK_LISTEN_MAX_QUEUE) != 0)
                 err_sys_with_errno("tcp listen failed");
     }
-    #if !defined(USE_WINDOWS_API) && !defined(WOLFSSL_TIRTOS) \
-                                                     && !defined(WOLFSSL_ZEPHYR)
+    #if !defined(WOLFSSL_TIRTOS) && !defined(WOLFSSL_ZEPHYR)
         if (*port == 0) {
             socklen_t len = sizeof(addr);
             if (getsockname(*sockfd, (struct sockaddr*)&addr, &len) == 0) {
@@ -1765,8 +1770,7 @@ static WC_INLINE void udp_accept(SOCKET_T* sockfd, SOCKET_T* clientfd,
     if (bind(*sockfd, (const struct sockaddr*)&addr, sizeof(addr)) != 0)
         err_sys_with_errno("tcp bind failed");
 
-    #if !defined(USE_WINDOWS_API) && !defined(WOLFSSL_TIRTOS) && \
-           !defined(SINGLE_THREADED)
+    #if !defined(WOLFSSL_TIRTOS) && !defined(SINGLE_THREADED)
         if (port == 0) {
             socklen_t len = sizeof(addr);
             if (getsockname(*sockfd, (struct sockaddr*)&addr, &len) == 0) {
@@ -2509,10 +2513,11 @@ static WC_INLINE int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
 #if defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL)
     WOLFSSL_X509* peer;
 #endif
-#if defined(OPENSSL_EXTRA) && defined(SHOW_CERTS) && !defined(NO_FILESYSTEM)
+#if defined(OPENSSL_EXTRA) && defined(SHOW_CERTS) && !defined(NO_FILESYSTEM) \
+    && !defined(OPENSSL_COEXIST)
     WOLFSSL_BIO* bio = NULL;
     WOLFSSL_STACK* sk = NULL;
-    X509* x509 = NULL;
+    WOLFSSL_X509* x509 = NULL;
 #endif
 
     /* Verify Callback Arguments:
@@ -2560,7 +2565,8 @@ static WC_INLINE int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
 
         XFREE(subject, 0, DYNAMIC_TYPE_OPENSSL);
         XFREE(issuer,  0, DYNAMIC_TYPE_OPENSSL);
-#if defined(OPENSSL_EXTRA) && defined(SHOW_CERTS) && !defined(NO_FILESYSTEM)
+#if defined(OPENSSL_EXTRA) && defined(SHOW_CERTS) && !defined(NO_FILESYSTEM) \
+    && !defined(OPENSSL_COEXIST)
         /* avoid printing duplicate certs */
         if (store->depth == 1) {
             int i;
@@ -4879,7 +4885,7 @@ static WC_INLINE word16 GetRandomPort(void)
 static WC_INLINE void EarlyDataStatus(WOLFSSL* ssl)
 {
     int earlyData_status;
-#ifdef OPENSSL_EXTRA
+#if defined(OPENSSL_EXTRA) && !defined(OPENSSL_COEXIST)
     earlyData_status = SSL_get_early_data_status(ssl);
 #else
     earlyData_status = wolfSSL_get_early_data_status(ssl);

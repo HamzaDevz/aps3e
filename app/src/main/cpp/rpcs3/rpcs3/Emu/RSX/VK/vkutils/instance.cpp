@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include "instance.h"
 
+#include "Emu/system_config.h"
+
 namespace vk
 {
 	// Supported extensions
@@ -50,7 +52,7 @@ namespace vk
 
 		if (m_debugger)
 		{
-			_vkDestroyDebugReportCallbackEXT(m_instance, m_debugger, nullptr);
+			_vkDestroyDebugReportCallback(m_instance, m_debugger, nullptr);
 			m_debugger = nullptr;
 		}
 
@@ -59,11 +61,8 @@ namespace vk
 			_vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
 			m_surface = VK_NULL_HANDLE;
 		}
-#if __ANDROID__
+
 		_vkDestroyInstance(m_instance, nullptr);
-#else
-		vkDestroyInstance(m_instance, nullptr);
-#endif
 		m_instance = VK_NULL_HANDLE;
 	}
 
@@ -73,15 +72,15 @@ namespace vk
 
 		PFN_vkDebugReportCallbackEXT callback = vk::dbgFunc;
 
-		//_vkCreateDebugReportCallback = reinterpret_cast<PFN_vkCreateDebugReportCallbackEXT>(_vkGetInstanceProcAddr(m_instance, "_vkCreateDebugReportCallbackEXT"));
-		//_vkDestroyDebugReportCallback = reinterpret_cast<PFN_vkDestroyDebugReportCallbackEXT>(_vkGetInstanceProcAddr(m_instance, "_vkDestroyDebugReportCallbackEXT"));
+		_vkCreateDebugReportCallback = reinterpret_cast<PFN_vkCreateDebugReportCallbackEXT>(_vkGetInstanceProcAddr(m_instance, "vkCreateDebugReportCallbackEXT"));
+		_vkDestroyDebugReportCallback = reinterpret_cast<PFN_vkDestroyDebugReportCallbackEXT>(_vkGetInstanceProcAddr(m_instance, "vkDestroyDebugReportCallbackEXT"));
 
 		VkDebugReportCallbackCreateInfoEXT dbgCreateInfo = {};
 		dbgCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT;
 		dbgCreateInfo.pfnCallback = callback;
 		dbgCreateInfo.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT;
 
-		CHECK_RESULT(_vkCreateDebugReportCallbackEXT(m_instance, &dbgCreateInfo, NULL, &m_debugger));
+		CHECK_RESULT(_vkCreateDebugReportCallback(m_instance, &dbgCreateInfo, NULL, &m_debugger));
 	}
 
 #ifdef __clang__
@@ -98,7 +97,11 @@ namespace vk
 		app.applicationVersion = 0;
 		app.pEngineName = app_name;
 		app.engineVersion = 0;
+		#ifdef __ANDROID__
 		app.apiVersion = VK_API_VERSION_1_1;
+#else
+		app.apiVersion = VK_API_VERSION_1_2;
+#endif
 
 		// Set up instance information
 
@@ -191,7 +194,7 @@ namespace vk
 			if (g_cfg.video.debug_output)
 				layers.push_back("VK_LAYER_KHRONOS_validation");
 		}
-#ifdef __APPLE__
+#ifdef __APPLE__ 
 		// MoltenVK's ICD will not be detected without these extensions enabled.
 		else
 		{
@@ -217,11 +220,8 @@ namespace vk
 #ifdef __APPLE__
 		instance_info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
-#if __ANDROID__
-        if (VkResult result = _vkCreateInstance(&instance_info, nullptr, &m_instance); result != VK_SUCCESS)
-#else
-        if (VkResult result = vkCreateInstance(&instance_info, nullptr, &m_instance); result != VK_SUCCESS)
-#endif
+
+		if (VkResult result = _vkCreateInstance(&instance_info, nullptr, &m_instance); result != VK_SUCCESS)
 		{
 			if (result == VK_ERROR_LAYER_NOT_PRESENT)
 			{
@@ -241,7 +241,7 @@ namespace vk
 		// Register some global states
 		if (m_debugger)
 		{
-			_vkDestroyDebugReportCallbackEXT(m_instance, m_debugger, nullptr);
+			_vkDestroyDebugReportCallback(m_instance, m_debugger, nullptr);
 			m_debugger = nullptr;
 		}
 
@@ -252,25 +252,38 @@ namespace vk
 	{
 		u32 num_gpus;
 		// This may fail on unsupported drivers, so just assume no devices
-#if __ANDROID__
 		if (_vkEnumeratePhysicalDevices(m_instance, &num_gpus, nullptr) != VK_SUCCESS)
-#else
-		if (vkEnumeratePhysicalDevices(m_instance, &num_gpus, nullptr) != VK_SUCCESS)
-#endif
 			return gpus;
 
 		if (gpus.size() != num_gpus)
 		{
 			std::vector<VkPhysicalDevice> pdevs(num_gpus);
 			gpus.resize(num_gpus);
-#if __ANDROID__
+
 			CHECK_RESULT(_vkEnumeratePhysicalDevices(m_instance, &num_gpus, pdevs.data()));
-#else
-			CHECK_RESULT(vkEnumeratePhysicalDevices(m_instance, &num_gpus, pdevs.data()));
-#endif
+
 			for (u32 i = 0; i < num_gpus; ++i)
 				gpus[i].create(m_instance, pdevs[i], extensions_loaded);
 		}
+
+		auto priority = [](const physical_device& dev)
+		{
+			switch (dev.get_type())
+			{
+			case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+				return 0;
+			case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+				return 1;
+			default:
+				return 2;
+			}
+		};
+
+		std::stable_sort(gpus.begin(), gpus.end(),
+			[&](const physical_device& a, const physical_device& b)
+			{
+				return priority(a) < priority(b);
+			});
 
 		return gpus;
 	}

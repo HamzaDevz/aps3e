@@ -8,11 +8,23 @@
 
 #include "../Program/SPIRVCommon.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#include <dlfcn.h>
+#include <cstdio>
+#endif
+
 namespace vk
 {
 	namespace glsl
 	{
 		using namespace ::glsl;
+	bool operator == (const descriptor_slot_t& a, const VkDescriptorSubBufferEx& b)
+	{
+		const auto ptr = std::get_if<VkDescriptorSubBufferEx>(&a);
+		return !!ptr && ptr->resourceId == b.resourceId;
+	}
+
 
 		bool operator == (const descriptor_slot_t& a, const VkDescriptorImageInfoEx& b)
 		{
@@ -40,12 +52,6 @@ namespace vk
 			return !!ptr && ptr->resourceId == b.resourceId;
 		}
 
-        bool operator == (const descriptor_slot_t& a, const VkDescriptorSubBufferEx& b)
-		{
-			const auto ptr = std::get_if<VkDescriptorSubBufferEx>(&a);
-			return !!ptr && ptr->resourceId == b.resourceId;
-		}
-
 		bool operator == (const descriptor_slot_t& a, const std::span<const VkDescriptorImageInfoEx>& b)
 		{
 			const auto ptr = std::get_if<descriptor_image_array_t>(&a);
@@ -66,6 +72,8 @@ namespace vk
 				return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			case input_type_storage_texture:
 				return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+			case input_type_attachment:
+				return VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
 			default:
 				fmt::throw_exception("Unexpected program input type %d", static_cast<int>(type));
 			}
@@ -207,7 +215,7 @@ namespace vk
 			return *this;
 		}
 
-		program& program::link(bool separate_objects)
+		program& program::link(VkPipelineCache pipeline_cache, bool separate_objects)
 		{
 			auto p_graphics_info = std::get_if<VkGraphicsPipelineCreateInfo>(&m_info);
 			auto p_compute_info = !p_graphics_info ? std::get_if<VkComputePipelineCreateInfo>(&m_info) : nullptr;
@@ -275,20 +283,20 @@ namespace vk
 			{
 				VkGraphicsPipelineCreateInfo create_info = *p_graphics_info;
 				create_info.layout = m_pipeline_layout;
-				CHECK_RESULT(_vkCreateGraphicsPipelines(m_device, nullptr, 1, &create_info, nullptr, &m_pipeline));
+				CHECK_RESULT(_vkCreateGraphicsPipelines(m_device, pipeline_cache, 1, &create_info, nullptr, &m_pipeline));
 			}
 			else
 			{
 				VkComputePipelineCreateInfo create_info = *p_compute_info;
 				create_info.layout = m_pipeline_layout;
-				CHECK_RESULT(_vkCreateComputePipelines(m_device, nullptr, 1, &create_info, nullptr, &m_pipeline));
+				CHECK_RESULT(_vkCreateComputePipelines(m_device, pipeline_cache, 1, &create_info, nullptr, &m_pipeline));
 			}
 
 			m_linked = true;
 			return *this;
 		}
 
-		bool program::has_uniform(program_input_type type, const std::string& uniform_name)
+		bool program::has_uniform(program_input_type type, std::string_view uniform_name)
 		{
 			for (auto& set : m_sets)
 			{
@@ -302,7 +310,7 @@ namespace vk
 			return false;
 		}
 
-		std::pair<u32, u32> program::get_uniform_location(::glsl::program_domain domain, program_input_type type, const std::string& uniform_name)
+		std::pair<u32, u32> program::get_uniform_location(::glsl::program_domain domain, program_input_type type, std::string_view uniform_name)
 		{
 			for (unsigned i = 0; i < ::size32(m_sets); ++i)
 			{
@@ -353,11 +361,12 @@ namespace vk
 
 		void program::bind_uniform(const VkDescriptorSubBufferEx& buffer_upload, u32 set_id, u32 binding_point)
 		{
-            if (m_sets[set_id].m_descriptor_slots[binding_point] == buffer_upload)
-            {
-                return;
-            }
-            m_sets[set_id].notify_descriptor_slot_updated(binding_point, buffer_upload);
+			if (m_sets[set_id].m_descriptor_slots[binding_point] == buffer_upload)
+			{
+				return;
+			}
+
+			m_sets[set_id].notify_descriptor_slot_updated(binding_point, buffer_upload);
 		}
 
 		void program::bind_uniform_array(const std::span<const VkDescriptorImageInfoEx>& image_descriptors, u32 set_id, u32 binding_point)
@@ -516,8 +525,7 @@ namespace vk
 
 				if (auto ptr = std::get_if<VkDescriptorSubBufferEx>(&slot))
 				{
-                    const VkDescriptorBufferInfo buffer_info = { ptr->buffer, 0, VK_WHOLE_SIZE };
-					m_descriptor_set.push(buffer_info, type, idx);
+					m_descriptor_set.push(VkDescriptorBufferInfo{ ptr->buffer, 0, VK_WHOLE_SIZE }, type, idx);
 					return;
 				}
 
@@ -577,8 +585,7 @@ namespace vk
 
 				if (auto ptr = std::get_if<VkDescriptorSubBufferEx>(&slot))
 				{
-                    const VkDescriptorBufferInfo buffer_info = { ptr->buffer, 0, VK_WHOLE_SIZE };
-                    m_descriptor_template[idx].pBufferInfo = m_descriptor_set.store(buffer_info);
+					m_descriptor_template[idx].pBufferInfo = m_descriptor_set.store(VkDescriptorBufferInfo{ ptr->buffer, 0, VK_WHOLE_SIZE });
 					return;
 				}
 
@@ -661,7 +668,7 @@ namespace vk
 
 			std::unordered_map<u32, VkDescriptorType> descriptor_type_map;
 
-			auto descriptor_count = [](const std::string& name) -> u32
+			auto descriptor_count = [](std::string_view name) -> u32
 			{
 				const auto start = name.find_last_of("[");
 				if (start == std::string::npos)
@@ -672,8 +679,8 @@ namespace vk
 				const auto end = name.find_last_of("]");
 				ensure(end != std::string::npos && start < end, "Invalid variable name");
 
-				const std::string array_size = name.substr(start + 1, end - start - 1);
-				if (const auto count = std::atoi(array_size.c_str());
+				const std::string_view array_size = name.substr(start + 1, end - start - 1);
+				if (const auto count = std::atoi(array_size.data());
 					count > 0)
 				{
 					return count;
@@ -725,7 +732,7 @@ namespace vk
 		void descriptor_table_t::create_descriptor_pool()
 		{
 			m_descriptor_pool = std::make_unique<descriptor_pool>();
-			m_descriptor_pool->create(*vk::g_render_device, m_descriptor_pool_sizes);
+			m_descriptor_pool->create(*vk::g_render_device, m_descriptor_pool_sizes, 16u, 4096u);
 		}
 
 		void descriptor_table_t::validate() const

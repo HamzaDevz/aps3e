@@ -8,6 +8,12 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/git-version.cmake)
 include(ConfigureCompiler)
 include(CheckFunctionExists)
 
+# NDK clang-18 trips over missing-return/fallthrough diagnostics that upstream
+# (clang-19+) does not flag; downgrade them to plain warnings on Android.
+if(ANDROID)
+	add_compile_options(-Wno-error=return-type -Wno-return-type -Wno-error=implicit-fallthrough -Wno-implicit-fallthrough)
+endif()
+
 set(CMAKE_CXX_STANDARD 23)
 
 if(UNIX AND NOT APPLE AND NOT ANDROID)
@@ -182,17 +188,21 @@ if(BUILD_RPCS3_TESTS)
     target_sources(rpcs3_test
         PRIVATE
             tests/test.cpp
-            tests/test_bit_set.cpp
-            tests/test_fmt.cpp
-            tests/test_pair.cpp
-            tests/test_tuple.cpp
-            tests/test_simple_array.cpp
             tests/test_address_range.cpp
-            tests/test_sys_fs.cpp
+            tests/test_bit_set.cpp
+            tests/test_cctype.cpp
+            tests/test_dmux_pamf.cpp
+            tests/test_fmt.cpp
+            tests/test_iso_open.cpp
+            tests/test_iso_extent.cpp
+            tests/test_pair.cpp
             tests/test_rsx_cfg.cpp
             tests/test_rsx_fp_asm.cpp
-            tests/test_dmux_pamf.cpp
+            tests/test_rsx_mm_queue.cpp
+            tests/test_simple_array.cpp
             tests/test_spu_analyser.cpp
+            tests/test_sys_fs.cpp
+            tests/test_tuple.cpp
             tests/test_types_util.cpp
     )
 
@@ -220,26 +230,4 @@ if(BUILD_RPCS3_TESTS)
             DEPENDS rpcs3_test
      )
     endif()
-endif()
-
-#return()
-
-# SPU ASMJIT standalone test (no GTest dependency)
-add_executable(spu_asmjit_test
-    Emu/Cell/SPUASMJITTest.cpp
-)
-
-target_link_libraries(spu_asmjit_test
-    PRIVATE
-        rpcs3_emu
-)
-
-target_include_directories(spu_asmjit_test
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/..
-)
-
-if(USE_PRECOMPILED_HEADERS)
-    target_precompile_headers(spu_asmjit_test PRIVATE stdafx.h)
 endif()

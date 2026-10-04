@@ -64,6 +64,7 @@ $(top_builddir)/lib/unitprotos.h:
 	(cd $(top_builddir)/lib && $(MAKE) unitprotos.h)
 
 noinst_PROGRAMS = $(BUNDLE)
+nodist_units_SOURCES = $(BUNDLE).c
 LDADD = $(top_builddir)/lib/libcurlu.la
 CLEANFILES = $(BUNDLE).c
 else
@@ -75,11 +76,8 @@ CS_0 = @echo "  RUN     " $@;
 CS_1 =
 CS_ = $(CS_0)
 
-# ignore generated C files since they play by slightly different rules!
 checksrc:
-	$(CHECKSRC)(@PERL@ $(top_srcdir)/scripts/checksrc.pl -D$(srcdir) \
-	  -W$(srcdir)/$(BUNDLE).c \
-	  $(srcdir)/*.[ch])
+	$(CHECKSRC)(@PERL@ $(top_srcdir)/scripts/checksrc.pl -D$(srcdir) -W$(srcdir)/$(BUNDLE).c $(TESTS_C))
 
 if NOT_CURL_CI
 all-local: checksrc

@@ -22,7 +22,6 @@
  *
  ***************************************************************************/
 #include "unitcheck.h"
-
 #include "tool_getparam.h"
 
 static CURLcode test_tool1394(const char *arg)
@@ -89,12 +88,10 @@ static CURLcode test_tool1394(const char *arg)
         fail("assertion failure");
       }
     }
-    else {
-      if(certname) {
-        curl_mprintf("expected certname NULL but got '%s' "
-                     "for -E param '%s'\n", certname, p->param);
-        fail("assertion failure");
-      }
+    else if(certname) {
+      curl_mprintf("expected certname NULL but got '%s' "
+                   "for -E param '%s'\n", certname, p->param);
+      fail("assertion failure");
     }
     if(p->passwd) {
       if(passphrase) {
@@ -110,12 +107,10 @@ static CURLcode test_tool1394(const char *arg)
         fail("assertion failure");
       }
     }
-    else {
-      if(passphrase) {
-        curl_mprintf("expected passphrase NULL but got '%s' "
-                     "for -E param '%s'\n", passphrase, p->param);
-        fail("assertion failure");
-      }
+    else if(passphrase) {
+      curl_mprintf("expected passphrase NULL but got '%s' "
+                   "for -E param '%s'\n", passphrase, p->param);
+      fail("assertion failure");
     }
     if(certname)
       curlx_free(certname);

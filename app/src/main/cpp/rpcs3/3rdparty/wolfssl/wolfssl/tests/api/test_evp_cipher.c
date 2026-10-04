@@ -501,6 +501,28 @@ int test_wolfSSL_EVP_CIPHER_iv_length(void)
     #if defined(HAVE_CHACHA) && defined(HAVE_POLY1305)
          NID_chacha20_poly1305,
     #endif
+    #ifdef WOLFSSL_AES_CFB
+    #ifdef WOLFSSL_AES_128
+        NID_aes_128_cfb128,
+    #endif
+    #ifdef WOLFSSL_AES_192
+        NID_aes_192_cfb128,
+    #endif
+    #ifdef WOLFSSL_AES_256
+        NID_aes_256_cfb128,
+    #endif
+    #endif /* WOLFSSL_AES_CFB */
+    #ifdef WOLFSSL_AES_OFB
+    #ifdef WOLFSSL_AES_128
+        NID_aes_128_ofb,
+    #endif
+    #ifdef WOLFSSL_AES_192
+        NID_aes_192_ofb,
+    #endif
+    #ifdef WOLFSSL_AES_256
+        NID_aes_256_ofb,
+    #endif
+    #endif /* WOLFSSL_AES_OFB */
     };
     int iv_lengths[] = {
     #if defined(HAVE_AES_CBC) || defined(WOLFSSL_AES_DIRECT)
@@ -546,6 +568,28 @@ int test_wolfSSL_EVP_CIPHER_iv_length(void)
     #if defined(HAVE_CHACHA) && defined(HAVE_POLY1305)
             CHACHA20_POLY1305_AEAD_IV_SIZE,
     #endif
+    #ifdef WOLFSSL_AES_CFB
+    #ifdef WOLFSSL_AES_128
+            AES_BLOCK_SIZE,
+    #endif
+    #ifdef WOLFSSL_AES_192
+            AES_BLOCK_SIZE,
+    #endif
+    #ifdef WOLFSSL_AES_256
+            AES_BLOCK_SIZE,
+    #endif
+    #endif /* WOLFSSL_AES_CFB */
+    #ifdef WOLFSSL_AES_OFB
+    #ifdef WOLFSSL_AES_128
+            AES_BLOCK_SIZE,
+    #endif
+    #ifdef WOLFSSL_AES_192
+            AES_BLOCK_SIZE,
+    #endif
+    #ifdef WOLFSSL_AES_256
+            AES_BLOCK_SIZE,
+    #endif
+    #endif /* WOLFSSL_AES_OFB */
     };
     int i;
     int nidsLen = (sizeof(nids)/sizeof(int));
@@ -1915,6 +1959,7 @@ int test_wolfssl_EVP_chacha20_poly1305(void)
     byte cipherText[sizeof(plainText)];
     byte decryptedText[sizeof(plainText)];
     byte tag[CHACHA20_POLY1305_AEAD_AUTHTAG_SIZE];
+    byte badTag[CHACHA20_POLY1305_AEAD_AUTHTAG_SIZE];
     EVP_CIPHER_CTX* ctx = NULL;
     int outSz;
 
@@ -1976,6 +2021,28 @@ int test_wolfssl_EVP_chacha20_poly1305(void)
     ExpectIntEQ(EVP_DecryptFinal_ex(ctx, decryptedText, &outSz),
                 WOLFSSL_SUCCESS);
     ExpectIntEQ(outSz, 0);
+    EVP_CIPHER_CTX_free(ctx);
+    ctx = NULL;
+
+    /* Negative test: forged (all-zero) tag must be rejected. */
+    XMEMSET(badTag, 0, sizeof(badTag));
+    ExpectNotNull((ctx = EVP_CIPHER_CTX_new()));
+    ExpectIntEQ(EVP_DecryptInit_ex(ctx, EVP_chacha20_poly1305(), NULL,
+                NULL, NULL), WOLFSSL_SUCCESS);
+    ExpectIntEQ(EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN,
+                CHACHA20_POLY1305_AEAD_IV_SIZE, NULL), WOLFSSL_SUCCESS);
+    ExpectIntEQ(EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG,
+                CHACHA20_POLY1305_AEAD_AUTHTAG_SIZE, badTag),
+                WOLFSSL_SUCCESS);
+    ExpectIntEQ(EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv),
+                WOLFSSL_SUCCESS);
+    ExpectIntEQ(EVP_DecryptUpdate(ctx, NULL, &outSz, aad, sizeof(aad)),
+                WOLFSSL_SUCCESS);
+    ExpectIntEQ(EVP_DecryptUpdate(ctx, decryptedText, &outSz, cipherText,
+                sizeof(cipherText)), WOLFSSL_SUCCESS);
+    /* EVP_DecryptFinal_ex MUST return failure on tag mismatch */
+    ExpectIntNE(EVP_DecryptFinal_ex(ctx, decryptedText, &outSz),
+                WOLFSSL_SUCCESS);
     EVP_CIPHER_CTX_free(ctx);
     ctx = NULL;
 
@@ -2172,7 +2239,7 @@ int test_wolfssl_EVP_sm4_ecb(void)
     };
     byte cipherText[sizeof(plainText) + SM4_BLOCK_SIZE];
     byte decryptedText[sizeof(plainText) + SM4_BLOCK_SIZE];
-    EVP_CIPHER_CTX* ctx;
+    EVP_CIPHER_CTX* ctx = NULL;
     int outSz;
 
     XMEMSET(key, 0, sizeof(key));
@@ -2228,7 +2295,7 @@ int test_wolfssl_EVP_sm4_cbc(void)
     };
     byte cipherText[sizeof(plainText) + SM4_BLOCK_SIZE];
     byte decryptedText[sizeof(plainText) + SM4_BLOCK_SIZE];
-    EVP_CIPHER_CTX* ctx;
+    EVP_CIPHER_CTX* ctx = NULL;
     int outSz;
 
     XMEMSET(key, 0, sizeof(key));
@@ -2296,7 +2363,7 @@ int test_wolfssl_EVP_sm4_ctr(void)
     byte plainText[] = {0xDE, 0xAD, 0xBE, 0xEF};
     byte cipherText[sizeof(plainText)];
     byte decryptedText[sizeof(plainText)];
-    EVP_CIPHER_CTX* ctx;
+    EVP_CIPHER_CTX* ctx = NULL;
     int outSz;
 
     XMEMSET(key, 0, sizeof(key));

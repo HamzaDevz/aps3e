@@ -57,7 +57,7 @@
 
 #define CHKSPEED_VERSION "1.0"
 
-static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *data)
+static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *data)
 {
   /* we are not interested in the downloaded bytes itself,
      so we only return the size we would have saved ... */
@@ -105,7 +105,7 @@ int main(int argc, const char *argv[])
         case 'm':
         case 'M':
           if(argv[0][2] == '=') {
-            int m = atoi((*argv) + 3);
+            int m = atoi(*argv + 3);
             switch(m) {
             case 1:
               url = URL_1M;

@@ -58,6 +58,7 @@ const std::map<emu_settings_type, cfg_location> settings_location =
 	{ emu_settings_type::DisableSpinOptimization,    get_cfg_location(local_cfg.core.spu_getllar_spin_optimization_disabled) },
 	{ emu_settings_type::EnabledSPUEventsBusyLoop,   get_cfg_location(local_cfg.core.spu_reservation_busy_waiting_enabled) },
 	{ emu_settings_type::PPUReservationPriorityOverSPUs, get_cfg_location(local_cfg.core.ppu_reservation_priority_over_spu) },
+	{ emu_settings_type::AccurateSpuReservations,    get_cfg_location(local_cfg.core.spu_accurate_reservations) },
 
 	// Graphics Tab
 	{ emu_settings_type::Renderer,                   get_cfg_location(local_cfg.video.renderer) },
@@ -111,8 +112,10 @@ const std::map<emu_settings_type, cfg_location> settings_location =
 	{ emu_settings_type::ForceHwMSAAResolve,         get_cfg_location(local_cfg.video.force_hw_MSAA_resolve) },
 	{ emu_settings_type::DisableAsyncHostMM,         get_cfg_location(local_cfg.video.disable_async_host_memory_manager) },
 	{ emu_settings_type::RecordWithOverlays,         get_cfg_location(local_cfg.video.record_with_overlays) },
-	{ emu_settings_type::DisableHWTexelRemapping,    get_cfg_location(local_cfg.video.disable_hardware_texel_remapping) },
+	{ emu_settings_type::DisableHWBlending,          get_cfg_location(local_cfg.video.disable_hardware_texel_remapping) },
+	{ emu_settings_type::DisableHWTexelRemapping,    get_cfg_location(local_cfg.video.disable_hardware_blending) },
 	{ emu_settings_type::FsrSharpeningStrength,      get_cfg_location(local_cfg.video.rcas_sharpening_intensity) },
+	{ emu_settings_type::DisableBlitEngineScaling,   get_cfg_location(local_cfg.video.disable_blit_engine_upscaling) },
 
 	// Vulkan
 	{ emu_settings_type::VulkanAdapter,                    get_cfg_location(local_cfg.video.vk.adapter) },
@@ -195,6 +198,7 @@ const std::map<emu_settings_type, cfg_location> settings_location =
 	{ emu_settings_type::StartOnBoot,                     get_cfg_location(local_cfg.misc.autostart) },
 	{ emu_settings_type::PauseOnFocusLoss,                get_cfg_location(local_cfg.misc.autopause) },
 	{ emu_settings_type::StartGameFullscreen,             get_cfg_location(local_cfg.misc.start_fullscreen) },
+	{ emu_settings_type::StartBigPictureModeOnBoot,       get_cfg_location(local_cfg.misc.start_big_picture_mode) },
 	{ emu_settings_type::PreventDisplaySleep,             get_cfg_location(local_cfg.misc.prevent_display_sleep) },
 	{ emu_settings_type::ShowTrophyPopups,                get_cfg_location(local_cfg.misc.show_trophy_popups) },
 	{ emu_settings_type::ShowRpcnPopups,                  get_cfg_location(local_cfg.misc.show_rpcn_popups) },

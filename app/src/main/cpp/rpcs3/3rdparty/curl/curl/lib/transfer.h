@@ -39,8 +39,8 @@ bool Curl_meets_timecondition(struct Curl_easy *data, time_t timeofdoc);
 
 /**
  * Write the transfer raw response bytes, as received from the connection.
- * Will handle all passed bytes or return an error. By default, this will
- * write the bytes as BODY to the client. Protocols may provide a
+ * Handle all passed bytes or return an error. By default, this writes
+ * the bytes as BODY to the client. Protocols may provide a
  * "write_resp" callback in their handler to add specific treatment. E.g.
  * HTTP parses response headers and passes them differently to the client.
  * @param data     the transfer
@@ -69,12 +69,12 @@ void Curl_xfer_setup_nop(struct Curl_easy *data);
 
 /* The transfer sends data on the given socket index */
 void Curl_xfer_setup_send(struct Curl_easy *data,
-                          int sockindex);
+                          int8_t sockindex);
 
 /* The transfer receives data on the given socket index, the
  * amount to receive (or -1 if unknown). */
 void Curl_xfer_setup_recv(struct Curl_easy *data,
-                          int sockindex,
+                          int8_t sockindex,
                           curl_off_t recv_size);
 
 /* *After* Curl_xfer_setup_xxx(), tell the transfer to shutdown the
@@ -89,7 +89,7 @@ void Curl_xfer_set_shutdown(struct Curl_easy *data,
  * the amount to receive or -1 if unknown.
  */
 void Curl_xfer_setup_sendrecv(struct Curl_easy *data,
-                              int sockindex,
+                              int8_t sockindex,
                               curl_off_t recv_size);
 
 /**
@@ -112,7 +112,7 @@ CURLcode Curl_xfer_flush(struct Curl_easy *data);
 /**
  * Send data on the socket/connection filter designated
  * for transfer's outgoing data.
- * Will return CURLE_OK on blocking with (*pnwritten == 0).
+ * Return CURLE_OK on blocking with (*pnwritten == 0).
  */
 CURLcode Curl_xfer_send(struct Curl_easy *data,
                         const void *buf, size_t blen, bool eos,
@@ -121,7 +121,7 @@ CURLcode Curl_xfer_send(struct Curl_easy *data,
 /**
  * Receive data on the socket/connection filter designated
  * for transfer's incoming data.
- * Will return CURLE_AGAIN on blocking with (*pnrcvd == 0).
+ * Return CURLE_AGAIN on blocking with (*pnrcvd == 0).
  */
 CURLcode Curl_xfer_recv(struct Curl_easy *data,
                         char *buf, size_t blen,
@@ -142,5 +142,13 @@ bool Curl_xfer_recv_is_paused(struct Curl_easy *data);
 /* Enable/Disable pausing of send/recv for the transfer. */
 CURLcode Curl_xfer_pause_send(struct Curl_easy *data, bool enable);
 CURLcode Curl_xfer_pause_recv(struct Curl_easy *data, bool enable);
+
+/* TRUE if the transfer is secure, e.g. uses TLS and does not
+ * use a forward proxy. */
+bool Curl_xfer_is_secure(struct Curl_easy *data);
+
+/* Internal variant of the API function */
+CURLcode Curl_easy_recv(struct Curl_easy *data,
+                        void *buffer, size_t buflen, size_t *n);
 
 #endif /* HEADER_CURL_TRANSFER_H */

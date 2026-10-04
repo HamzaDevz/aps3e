@@ -167,8 +167,10 @@ CWE
 cyassl
 Cygwin
 daniel
+datagrams
 datatracker
 dbg
+decapsulation
 Debian
 DEBUGBUILD
 decrypt
@@ -193,6 +195,7 @@ devtools
 DHCP
 DHE
 dir
+discoverable
 distro
 distro's
 distros
@@ -233,6 +236,7 @@ EGD
 EHLO
 EINTR
 else's
+encapsulation
 encodings
 enctype
 endianness
@@ -364,6 +368,9 @@ httpget
 HttpGet
 HTTPS
 https
+httpsig
+HTTPSIG
+CURLHTTPSIG
 HTTPSRR
 hyper's
 IANA
@@ -388,6 +395,7 @@ IMAPS
 imaps
 impacket
 implementers
+INI
 init
 initializer
 inlined
@@ -423,6 +431,7 @@ KDE
 keepalive
 Keil
 kerberos
+keyid
 Keychain
 keychain
 KiB
@@ -778,10 +787,10 @@ singlecwd
 SINIX
 Sintonen
 sizeof
-Slowloris
 SLE
 slist
 sln
+Slowloris
 SMB
 smb
 SMBS
@@ -895,6 +904,7 @@ trustless
 Tse
 Tsujikawa
 TTL
+tty
 tvOS
 txt
 typedef
@@ -990,6 +1000,7 @@ WinIDN
 WinLDAP
 winsock
 Wireshark
+wolfCrypt
 wolfSSH
 wolfSSL
 ws
@@ -1009,6 +1020,7 @@ Youtube
 YYYY
 YYYYMMDD
 Zakrzewski
+Zeropath
 Zitzmann
 zlib
 zsh

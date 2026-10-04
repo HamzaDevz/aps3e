@@ -88,9 +88,9 @@
         <item>Auto</item>
     </string-array>
     <string-array name="video_shader_mode_values">
-        <item>Shader Recompiler</item>
-        <item>Async Shader Recompiler</item>
-        <item>Async with Shader Interpreter</item>
+        <item>Legacy Recompiler (single-threaded)</item>
+        <item>Async Recompiler (multi-threaded)</item>
+        <item>Async Recompiler with Shader Interpreter</item>
         <item>Shader Interpreter only</item>
     </string-array>
     <string-array name="video_shader_precision_values">

@@ -83,6 +83,7 @@ man_MANS =                                      \
   CURLINFO_RTSP_SERVER_CSEQ.3                   \
   CURLINFO_RTSP_SESSION_ID.3                    \
   CURLINFO_SCHEME.3                             \
+  CURLINFO_SIZE_DELIVERED.3                     \
   CURLINFO_SIZE_DOWNLOAD.3                      \
   CURLINFO_SIZE_DOWNLOAD_T.3                    \
   CURLINFO_SIZE_UPLOAD.3                        \
@@ -121,6 +122,8 @@ man_MANS =                                      \
   CURLMOPT_PIPELINING_SITE_BL.3                 \
   CURLMOPT_PUSHDATA.3                           \
   CURLMOPT_PUSHFUNCTION.3                       \
+  CURLMOPT_QUICK_EXIT.3                         \
+  CURLMOPT_RESOLVE_THREADS_MAX.3                \
   CURLMOPT_SOCKETDATA.3                         \
   CURLMOPT_SOCKETFUNCTION.3                     \
   CURLMOPT_TIMERDATA.3                          \
@@ -224,6 +227,10 @@ man_MANS =                                      \
   CURLOPT_HTTPHEADER.3                          \
   CURLOPT_HTTPPOST.3                            \
   CURLOPT_HTTPPROXYTUNNEL.3                     \
+  CURLOPT_HTTPSIG_ALGORITHM.3                   \
+  CURLOPT_HTTPSIG_HEADERS.3                     \
+  CURLOPT_HTTPSIG_KEY.3                         \
+  CURLOPT_HTTPSIG_KEYID.3                       \
   CURLOPT_IGNORE_CONTENT_LENGTH.3               \
   CURLOPT_INFILESIZE.3                          \
   CURLOPT_INFILESIZE_LARGE.3                    \

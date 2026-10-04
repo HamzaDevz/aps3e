@@ -21,11 +21,10 @@ struct cfg_root : cfg::node
 		cfg::_bool llvm_logs{ this, "Save LLVM logs" };
 		cfg::string llvm_cpu{ this, "Use LLVM CPU" };
 #if __ANDROID__
-        cfg::_int<0, 1024> llvm_threads{ this, "Max LLVM Compile Threads", 4 };
+        cfg::_int<0, 16> llvm_threads{ this, "Max LLVM Compile Threads", 4 };
 #else
 		cfg::_int<0, 1024> llvm_threads{ this, "Max LLVM Compile Threads", 0 };
 #endif
-		//cfg::_bool ppu_llvm_greedy_mode{ this, "PPU LLVM Greedy Mode", false, false };
 		cfg::_bool llvm_precompilation{ this, "LLVM Precompilation", true };
 		cfg::_enum<thread_scheduler_mode> thread_scheduler{this, "Thread Scheduler Mode", thread_scheduler_mode::os};
         struct node_thread_affinity_mask : cfg::node
@@ -190,8 +189,10 @@ struct cfg_root : cfg::node
 		cfg::_bool disable_async_host_memory_manager{ this, "Disable Asynchronous Memory Manager", false, true };
 		cfg::_enum<output_scaling_mode> output_scaling{ this, "Output Scaling Mode", output_scaling_mode::bilinear, true };
 		cfg::_bool record_with_overlays{ this, "Record With Overlays", true, true };
+		cfg::_bool disable_hardware_blending{ this, "Disable Hardware Blending", false, true };
 		cfg::_bool disable_hardware_texel_remapping{ this, "Disable Hardware ColorSpace Remapping", false, true };
 		cfg::uint<0, 100> rcas_sharpening_intensity{ this, "FidelityFX CAS Sharpening Intensity", 50, true };
+		cfg::_bool disable_blit_engine_upscaling{ this, "Disable Blit Engine Upscaling", false, true };
 
         cfg::_enum<vertex_buffer_upload_mode> vertex_buffer_upload_mode{ this, "Vertex Buffer Upload Mode", vertex_buffer_upload_mode::_auto, false };
 		struct node_vk : cfg::node
@@ -199,7 +200,6 @@ struct cfg_root : cfg::node
 			node_vk(cfg::node* _this) : cfg::node(_this, "Vulkan") {}
 
 			cfg::string adapter{ this, "Adapter" };
-			cfg::_bool force_primitive_restart{ this, "Force primitive restart flag" };
 			cfg::_enum<vk_exclusive_fs_mode> exclusive_fullscreen_mode{ this, "Exclusive Fullscreen Mode", vk_exclusive_fs_mode::unspecified};
 			cfg::_bool asynchronous_texture_streaming{ this, "Asynchronous Texture Streaming", false };
 			cfg::_enum<vk_gpu_scheduler_mode> asynchronous_scheduler{ this, "Asynchronous Queue Scheduler", vk_gpu_scheduler_mode::safe };
@@ -378,6 +378,7 @@ struct cfg_root : cfg::node
 		cfg::_bool autoexit{ this, "Exit RPCS3 when process finishes", false, true };
 		cfg::_bool autopause{ this, "Pause emulation on RPCS3 focus loss", false, true };
 		cfg::_bool start_fullscreen{ this, "Start games in fullscreen mode", true, true };
+		cfg::_bool start_big_picture_mode{ this, "Start Big Picture Mode on boot", false, true };
 		cfg::_bool prevent_display_sleep{ this, "Prevent display sleep while running games", true, true };
 		cfg::_bool show_trophy_popups{ this, "Show trophy popups", true, true };
 		cfg::_bool show_rpcn_popups{ this, "Show RPCN popups", true, true };

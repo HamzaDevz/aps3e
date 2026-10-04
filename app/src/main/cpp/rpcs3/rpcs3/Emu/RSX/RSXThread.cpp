@@ -8,6 +8,7 @@
 #include "Host/MM.h"
 #include "Host/RSXDMAWriter.h"
 #include "NV47/HW/context.h"
+#include "NV47/HW/context_accessors.define.h"
 #include "Program/GLSLCommon.h"
 #include "rsx_methods.h"
 
@@ -15,6 +16,7 @@
 #include "RSXDisAsm.h"
 
 #include "Emu/System.h"
+#include "Emu/system_utils.hpp"
 #include "Emu/Cell/PPUThread.h"
 #include "Emu/Cell/timers.hpp"
 #include "Emu/Cell/lv2/sys_event.h"
@@ -121,6 +123,11 @@ namespace rsx
 
 	// TODO: Proper context manager
 	static rsx::context s_ctx{ .rsxthr = nullptr, .register_state = &method_registers };
+
+	constexpr u32 fs_export_config_mask =
+		RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE |
+		RSX_SHADER_CONTROL_ROP_MULTISAMPLED |
+		RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING;
 
 	rsx_iomap_table::rsx_iomap_table() noexcept
 		: ea(fill_array(-1))
@@ -288,6 +295,131 @@ namespace rsx
 		}
 	}
 
+	static bool evaluate_programmable_blending_state(rsx::context* ctx, u32& fragment_ctrl)
+	{
+		const bool is_blend_config_dirty = RSX(ctx)->m_graphics_state.test(rsx::blend_config_dirty);
+		RSX(ctx)->m_graphics_state.clear(rsx::blend_config_dirty);
+
+		const auto blend_enable_mask = REGS(ctx)->blend_enabled_mask() & REGS(ctx)->surface_color_target_mask();
+		const bool programmable_blend_active = !!(fragment_ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING);
+		const bool is_blending_active = !!blend_enable_mask && !REGS(ctx)->logic_op_enabled();
+
+		if (!is_blending_active && !programmable_blend_active)
+		{
+			return false;
+		}
+
+		if (!is_blending_active)
+		{
+			fragment_ctrl &= ~RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING;
+			return true;
+		}
+
+		if (g_cfg.video.disable_hardware_blending)
+		{
+			fragment_ctrl |= RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING;
+			return !programmable_blend_active;
+		}
+
+		// We actually need to handle this, we're still blending
+		const auto is_signed_equation = [](rsx::blend_equation equation)
+		{
+			switch (equation)
+			{
+			case rsx::blend_equation::add_signed:
+			case rsx::blend_equation::reverse_add_signed:
+			case rsx::blend_equation::reverse_subtract_signed:
+				return true;
+			default:
+				return false;
+			}
+		};
+
+		const auto factor_references_alpha = [](rsx::blend_factor factor)
+		{
+			switch (factor)
+			{
+			case rsx::blend_factor::src_alpha:
+			case rsx::blend_factor::one_minus_src_alpha:
+			case rsx::blend_factor::dst_alpha:
+			case rsx::blend_factor::one_minus_dst_alpha:
+			case rsx::blend_factor::src_alpha_saturate:
+				return true;
+			default:
+				return false;
+			}
+		};
+
+		const auto shader_writes_alpha = [&]()
+		{
+			for (u32 i = 0, mask = blend_enable_mask; !!mask; mask >>= 1, i++)
+			{
+				if (REGS(ctx)->color_mask_a(i))
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+
+		bool need_programmable_blending = false;
+		const auto surface_format = REGS(ctx)->surface_color();
+
+		switch (surface_format)
+		{
+		case surface_color_format::x1r5g5b5_z1r5g5b5:
+		case surface_color_format::x1r5g5b5_o1r5g5b5:
+		case surface_color_format::x8r8g8b8_z8r8g8b8:
+		case surface_color_format::x8r8g8b8_o8r8g8b8:
+		case surface_color_format::x8b8g8r8_z8b8g8r8:
+		case surface_color_format::x8b8g8r8_o8b8g8r8:
+			// Force PB if alpha is read in the RGB factors or A is written without passthrough.
+			if (factor_references_alpha(REGS(ctx)->blend_func_sfactor_rgb()) ||
+				factor_references_alpha(REGS(ctx)->blend_func_dfactor_rgb()))
+			{
+				need_programmable_blending = true;
+			}
+			else
+			{
+				need_programmable_blending = shader_writes_alpha() && (
+					REGS(ctx)->blend_equation_a() == rsx::blend_equation::reverse_subtract ||
+					REGS(ctx)->blend_equation_a() == rsx::blend_equation::min ||
+					REGS(ctx)->blend_equation_a() == rsx::blend_equation::max ||
+					REGS(ctx)->blend_func_sfactor_a() != rsx::blend_factor::one ||
+					REGS(ctx)->blend_func_dfactor_a() != rsx::blend_factor::zero);
+			}
+			break;
+		case surface_color_format::b8:
+		case surface_color_format::g8b8:
+			// These 2 don't accept custom factors anyway
+			[[ fallthrough ]];
+		default:
+			need_programmable_blending = need_programmable_blending ||
+				is_signed_equation(REGS(ctx)->blend_equation_rgb()) ||
+				is_signed_equation(REGS(ctx)->blend_equation_a());
+			break;
+		}
+
+		if (need_programmable_blending && is_blend_config_dirty)
+		{
+			RSX(ctx)->m_graphics_state.set(rsx::fragment_state_dirty);
+		}
+
+		if (need_programmable_blending == programmable_blend_active)
+		{
+			return false;
+		}
+
+		if (!need_programmable_blending)
+		{
+			fragment_ctrl &= ~RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING;
+			return true;
+		}
+
+		fragment_ctrl |= RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING;
+		return true;
+	}
+
 	std::pair<u32, u32> interleaved_range_info::calculate_required_range(u32 first, u32 count)
 	{
 		if (vertex_range.second)
@@ -393,7 +525,7 @@ namespace rsx
 
 			_max_index = 0;
 
-			auto re_evaluate = [&] <typename T> (const std::byte* ptr, T)
+			const auto re_evaluate = [&] <typename T> (const std::byte* ptr, T)
 			{
 				const u64 restart = rsx::method_registers.restart_index_enabled() ? rsx::method_registers.restart_index() : u64{umax};
 
@@ -714,7 +846,7 @@ namespace rsx
 
 			if (g_cfg.misc.play_music_during_boot)
 			{
-				if (const std::string audio_path = Emu.GetSfoDir(true) + "/SND0.AT3"; fs::is_file(audio_path))
+				if (const std::string audio_path = rpcs3::utils::get_game_content_path(game_content_type::content_sound); !audio_path.empty())
 				{
 					m_overlay_manager->start_audio(audio_path);
 				}
@@ -765,7 +897,7 @@ namespace rsx
 		ar(stereo_enabled, format, aspect, resolution_id, scanline_pitch, gamma, resolution_x, resolution_y, state, scan_mode);
 	}
 
-	void thread::capture_frame(const std::string& name)
+	void thread::capture_frame(const std::string& name) const
 	{
 		frame_trace_data::draw_state draw_state{};
 
@@ -843,7 +975,7 @@ namespace rsx
 
 		if (capture_current_frame)
 		{
-			u32 element_count = rsx::method_registers.current_draw_clause.get_elements_count();
+			const u32 element_count = rsx::method_registers.current_draw_clause.get_elements_count();
 			capture_frame(fmt::format("Draw %s %d", rsx::method_registers.current_draw_clause.primitive, element_count));
 		}
 	}
@@ -1586,18 +1718,28 @@ namespace rsx
 
 				m_graphics_state.set(rsx::rtt_config_contested);
 
-				// TODO: Research clearing both depth AND color
-				// TODO: If context is creation_draw, deal with possibility of a lost buffer clear
-				if (depth_test_enabled || stencil_test_enabled || (!layout.color_write_enabled[index] && layout.zeta_write_enabled))
-				{
-					// Use address for depth data
-					layout.color_addresses[index] = 0;
-					continue;
-				}
-				else
+				if (g_cfg.video.fb_aliasing_bias == framebuffer_aliasing_bias::prefer_color
+					&& layout.color_write_enabled[index]
+					&& !layout.zeta_write_enabled)
 				{
 					// Use address for color data
 					layout.zeta_address = 0;
+				}
+				else
+				{
+					// TODO: Research clearing both depth AND color
+					// TODO: If context is creation_draw, deal with possibility of a lost buffer clear
+					if (depth_test_enabled || stencil_test_enabled || (!layout.color_write_enabled[index] && layout.zeta_write_enabled))
+					{
+						// Use address for depth data
+						layout.color_addresses[index] = 0;
+						continue;
+					}
+					else
+					{
+						// Use address for color data
+						layout.zeta_address = 0;
+					}
 				}
 			}
 
@@ -1768,7 +1910,7 @@ namespace rsx
 
 			for (uint i = 0; i < mrt_buffers.size(); ++i)
 			{
-				if (m_ctx->register_state->color_write_enabled(i))
+				if (REGS(m_ctx)->color_write_enabled(i))
 				{
 					const auto real_index = mrt_buffers[i];
 					m_framebuffer_layout.color_write_enabled[real_index] = true;
@@ -1882,7 +2024,7 @@ namespace rsx
 			return;
 		}
 
-		const auto target = m_ctx->register_state->surface_color_target();
+		const auto target = REGS(m_ctx)->surface_color_target();
 		if (rsx::utility::get_mrt_buffers_count(target) == current_fragment_program.mrt_buffers_count)
 		{
 			return;
@@ -1954,6 +2096,58 @@ namespace rsx
 		std::tie(region.x2, region.y2) = rsx::apply_resolution_scale<true>(resolution_scaling_config, x2, y2, m_framebuffer_layout.width, m_framebuffer_layout.height);
 
 		return true;
+	}
+
+	rsx::flags32_t thread::get_fragment_program_export_config()
+	{
+		u32 expected_ctrl = 0;
+
+		// Programmable blending
+		if (backend_config.supports_programmable_blending)
+		{
+			expected_ctrl = current_fragment_program.ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING;
+
+			if (m_graphics_state.test(rsx::pipeline_config_dirty))
+			{
+				evaluate_programmable_blending_state(m_ctx, expected_ctrl);
+			}
+		}
+
+		// Resolve MSAA here if needed
+		if (!!(expected_ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING) &&
+			REGS(m_ctx)->surface_antialias() != rsx::surface_antialiasing::center_1_sample &&
+			backend_config.supports_hw_msaa)
+		{
+			expected_ctrl |= RSX_SHADER_CONTROL_ROP_MULTISAMPLED;
+		}
+
+		// Depth compare
+		if (!g_cfg.video.emulate_depth_compare) [[ likely ]]
+		{
+			return expected_ctrl;
+		}
+
+		if (REGS(m_ctx)->current_draw_clause.classify_mode() != primitive_class::polygon)
+		{
+			return expected_ctrl;
+		}
+
+		if (m_framebuffer_layout.zeta_address &&
+			REGS(m_ctx)->depth_test_enabled() &&
+			REGS(m_ctx)->depth_func() == rsx::comparison_function::equal)
+		{
+			expected_ctrl |= RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE;
+		}
+
+		// Resolve MSAA here if needed
+		if ((expected_ctrl & (RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE | RSX_SHADER_CONTROL_ROP_MULTISAMPLED)) == RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE &&
+			REGS(m_ctx)->surface_antialias() != rsx::surface_antialiasing::center_1_sample &&
+			backend_config.supports_hw_msaa)
+		{
+			expected_ctrl |= RSX_SHADER_CONTROL_ROP_MULTISAMPLED;
+		}
+
+		return expected_ctrl;
 	}
 
 	void thread::prefetch_fragment_program()
@@ -2050,6 +2244,17 @@ namespace rsx
 	{
 		m_program_cache_hint.invalidate(m_graphics_state.load());
 
+		if (u32 export_ctrl = get_fragment_program_export_config();
+			(current_fragment_program.ctrl & fs_export_config_mask) != export_ctrl)
+		{
+			// Update control bits for immediate consumers
+			current_fragment_program.ctrl &= ~fs_export_config_mask;
+			current_fragment_program.ctrl |= export_ctrl;
+
+			// Signal backend to reload pipeline
+			m_graphics_state.set(rsx::pipeline_state::fragment_program_state_dirty);
+		}
+
 		prefetch_vertex_program();
 		prefetch_fragment_program();
 	}
@@ -2058,7 +2263,7 @@ namespace rsx
 	{
 		if (m_graphics_state.test(rsx::pipeline_state::xform_instancing_state_dirty))
 		{
-			current_vertex_program.ctrl = 0;
+			current_vertex_program.ctrl &= ~RSX_SHADER_CONTROL_INSTANCED_CONSTANTS;
 			if (rsx::method_registers.current_draw_clause.is_trivial_instanced_draw)
 			{
 				current_vertex_program.ctrl |= RSX_SHADER_CONTROL_INSTANCED_CONSTANTS;
@@ -2077,6 +2282,13 @@ namespace rsx
 
 		ensure(!m_graphics_state.test(rsx::pipeline_state::vertex_program_ucode_dirty));
 		current_vertex_program.output_mask = rsx::method_registers.vertex_attrib_output_mask();
+
+		current_vertex_program.ctrl &= ~RSX_SHADER_CONTROL_FLAT_SHADING;
+		if (rsx::method_registers.shade_mode() == rsx::shading_mode::flat &&
+			backend_config.supports_last_provoking_vertex)
+		{
+			current_vertex_program.ctrl |= RSX_SHADER_CONTROL_FLAT_SHADING;
+		}
 
 		for (u32 textures_ref = current_vp_metadata.referenced_textures_mask, i = 0; textures_ref; textures_ref >>= 1, ++i)
 		{
@@ -2112,47 +2324,54 @@ namespace rsx
 
 		m_graphics_state.clear(rsx::pipeline_state::fragment_program_dirty);
 
-		current_fragment_program.ctrl = m_ctx->register_state->shader_control() & (CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS | CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | RSX_SHADER_CONTROL_USES_KIL);
-		current_fragment_program.texcoord_control_mask = m_ctx->register_state->texcoord_control_mask();
-		current_fragment_program.two_sided_lighting = m_ctx->register_state->two_side_light_en();
-		current_fragment_program.mrt_buffers_count = rsx::utility::get_mrt_buffers_count(m_ctx->register_state->surface_color_target());
+		current_fragment_program.ctrl &= fs_export_config_mask;
+		current_fragment_program.ctrl |= REGS(m_ctx)->shader_control() & (CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS | CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | RSX_SHADER_CONTROL_USES_KIL);
+		current_fragment_program.texcoord_control_mask = REGS(m_ctx)->texcoord_control_mask();
+		current_fragment_program.two_sided_lighting = REGS(m_ctx)->two_side_light_en();
+		current_fragment_program.mrt_buffers_count = rsx::utility::get_mrt_buffers_count(REGS(m_ctx)->surface_color_target());
 
-		if (m_ctx->register_state->current_draw_clause.classify_mode() == primitive_class::polygon)
+		if (REGS(m_ctx)->shade_mode() == rsx::shading_mode::flat &&
+			backend_config.supports_last_provoking_vertex)
+		{
+			current_fragment_program.ctrl |= RSX_SHADER_CONTROL_FLAT_SHADING;
+		}
+
+		if (REGS(m_ctx)->current_draw_clause.classify_mode() == primitive_class::polygon)
 		{
 			if (!backend_config.supports_normalized_barycentrics)
 			{
 				current_fragment_program.ctrl |= RSX_SHADER_CONTROL_ATTRIBUTE_INTERPOLATION;
 			}
 
-			if (m_ctx->register_state->alpha_test_enabled())
-			{
-				current_fragment_program.ctrl |= RSX_SHADER_CONTROL_ALPHA_TEST;
-			}
-
-			if (m_ctx->register_state->polygon_stipple_enabled())
+			if (REGS(m_ctx)->polygon_stipple_enabled())
 			{
 				current_fragment_program.ctrl |= RSX_SHADER_CONTROL_POLYGON_STIPPLE;
 			}
-
-			if (m_ctx->register_state->msaa_alpha_to_coverage_enabled())
-			{
-				const bool is_multiple_samples = m_ctx->register_state->surface_antialias() != rsx::surface_antialiasing::center_1_sample;
-				if (!backend_config.supports_hw_a2c || (!is_multiple_samples && !backend_config.supports_hw_a2c_1spp))
-				{
-					// Emulation required
-					current_fragment_program.ctrl |= RSX_SHADER_CONTROL_ALPHA_TO_COVERAGE;
-				}
-			}
 		}
-		else if (m_ctx->register_state->point_sprite_enabled() &&
-			m_ctx->register_state->current_draw_clause.primitive == primitive_type::points)
+		else if (REGS(m_ctx)->point_sprite_enabled() &&
+			REGS(m_ctx)->current_draw_clause.primitive == primitive_type::points)
 		{
 			// Set high word of the control mask to store point sprite control
-			current_fragment_program.texcoord_control_mask |= u32(m_ctx->register_state->point_sprite_control_mask()) << 16;
+			current_fragment_program.texcoord_control_mask |= u32(REGS(m_ctx)->point_sprite_control_mask()) << 16;
+		}
+
+		if (REGS(m_ctx)->alpha_test_enabled())
+		{
+			current_fragment_program.ctrl |= RSX_SHADER_CONTROL_ALPHA_TEST;
+		}
+
+		if (REGS(m_ctx)->msaa_alpha_to_coverage_enabled())
+		{
+			const bool is_multiple_samples = REGS(m_ctx)->surface_antialias() != rsx::surface_antialiasing::center_1_sample;
+			if (!backend_config.supports_hw_a2c || (!is_multiple_samples && !backend_config.supports_hw_a2c_1spp))
+			{
+				// Emulation required
+				current_fragment_program.ctrl |= RSX_SHADER_CONTROL_ALPHA_TO_COVERAGE;
+			}
 		}
 
 		// Check if framebuffer is actually an XRGB format and not a WZYX format
-		switch (m_ctx->register_state->surface_color())
+		switch (REGS(m_ctx)->surface_color())
 		{
 		case rsx::surface_color_format::w16z16y16x16:
 		case rsx::surface_color_format::w32z32y32x32:
@@ -2163,9 +2382,13 @@ namespace rsx
 			// Integer framebuffer formats. These can support sRGB output as well as some special rules for output quantization.
 			current_fragment_program.ctrl |= RSX_SHADER_CONTROL_8BIT_FRAMEBUFFER;
 			if (!(current_fragment_program.ctrl & CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS) && // Cannot output sRGB from 32-bit registers
-				m_ctx->register_state->framebuffer_srgb_enabled())
+				REGS(m_ctx)->framebuffer_srgb_enabled())
 			{
 				current_fragment_program.ctrl |= RSX_SHADER_CONTROL_SRGB_FRAMEBUFFER;
+			}
+			if (REGS(m_ctx)->surface_is_swizzle_remapped())
+			{
+				current_fragment_program.ctrl |= RSX_SHADER_CONTROL_ROP_OUTPUT_REMAP;
 			}
 			break;
 		}
@@ -2177,7 +2400,7 @@ namespace rsx
 		{
 			if (!(textures_ref & 1)) continue;
 
-			auto &tex = m_ctx->register_state->fragment_textures[i];
+			auto &tex = REGS(m_ctx)->fragment_textures[i];
 			current_fp_texture_state.clear(i);
 
 			if (!tex.enabled() || sampler_descriptors[i]->format_class == RSX_FORMAT_CLASS_UNDEFINED)
@@ -2311,7 +2534,7 @@ namespace rsx
 				{
 					m_graphics_state |= rsx::zeta_address_is_cyclic;
 
-					if (!(current_fragment_program.ctrl & (CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | RSX_SHADER_CONTROL_META_USES_DISCARD)) &&
+					if (!(current_fragment_program.ctrl & (CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | RSX_SHADER_CONTROL_META_USES_DISCARD | RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE)) &&
 						m_framebuffer_layout.zeta_write_enabled)
 					{
 						current_fragment_program.ctrl |= RSX_SHADER_CONTROL_DISABLE_EARLY_Z;
@@ -2372,7 +2595,7 @@ namespace rsx
 		if (current_fragment_program.ctrl & CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT)
 		{
 			//Check that the depth stage is not disabled
-			if (!m_ctx->register_state->depth_test_enabled())
+			if (!REGS(m_ctx)->depth_test_enabled())
 			{
 				rsx_log.trace("FS exports depth component but depth test is disabled (INVALID_OPERATION)");
 			}
@@ -3168,7 +3391,7 @@ namespace rsx
 			// capture first tile state with nop cmd
 			rsx::frame_capture_data::replay_command replay_cmd;
 			replay_cmd.rsx_command = std::make_pair(NV4097_NO_OPERATION, 0);
-			frame_capture.replay_commands.push_back(replay_cmd);
+			frame_capture.replay_commands.push_back(std::move(replay_cmd));
 			capture::capture_display_tile_state(this, frame_capture.replay_commands.back());
 		}
 		else if (capture_current_frame)

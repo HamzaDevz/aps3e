@@ -318,13 +318,13 @@ vk::vertex_upload_info VKGSRender::upload_vertex_data()
 	{
 		// Check for validity
 		if (m_persistent_attribute_storage &&
-                !m_persistent_attribute_storage->is(m_attrib_ring_info.heap->value))
+			!m_persistent_attribute_storage->is(m_attrib_ring_info.heap->value))
 		{
 			vk::get_resource_manager()->dispose(m_persistent_attribute_storage);
 		}
 
 		if (m_volatile_attribute_storage &&
-                !m_volatile_attribute_storage->is(m_attrib_ring_info.heap->value))
+			!m_volatile_attribute_storage->is(m_attrib_ring_info.heap->value))
 		{
 			vk::get_resource_manager()->dispose(m_volatile_attribute_storage);
 		}

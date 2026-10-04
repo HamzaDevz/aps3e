@@ -3,8 +3,9 @@ name: pam-ipmi Tests
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '*' ]
 
 concurrency:
@@ -16,7 +17,7 @@ concurrency:
 jobs:
   build_wolfssl:
     name: Build wolfSSL
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     # Just to keep it the same as the testing target
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
@@ -35,7 +36,7 @@ jobs:
         run: tar -zcf build-dir.tgz build-dir
 
       - name: Upload built lib
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wolf-install-pam-ipmi
           path: build-dir.tgz
@@ -47,19 +48,24 @@ jobs:
       matrix:
         git_ref: [ e4b13e6725abb178f62ee897fe1c0e81b06a9431 ]
     name: ${{ matrix.git_ref }}
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     needs: build_wolfssl
     steps:
+      - name: Checkout wolfSSL CI actions
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+
       - name: Install dependencies
-        run: |
-          # Don't prompt for anything
-          export DEBIAN_FRONTEND=noninteractive
-          sudo apt-get update
-          sudo apt-get install libpam-dev ninja-build meson
+        uses: ./.github/actions/install-apt-deps
+        with:
+          packages: libpam-dev ninja-build meson
+          ghcr-debs-tag: ubuntu-24.04-full
 
       - name: Download lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: wolf-install-pam-ipmi
 
@@ -67,17 +73,19 @@ jobs:
         run: tar -xf build-dir.tgz
 
       - name: Checkout OSP
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: wolfssl/osp
           path: osp
+          fetch-depth: 1
 
       - name: Checkout pam-ipmi
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: openbmc/pam-ipmi
           path: pam-ipmi
           ref: ${{ matrix.git_ref }}
+          fetch-depth: 1
 
       - name: Build pam-ipmi
         working-directory: pam-ipmi

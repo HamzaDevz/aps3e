@@ -42,6 +42,10 @@ Disable support for the negotiate authentication methods.
 
 Disable **aws-sigv4** support.
 
+## `CURL_DISABLE_HTTPSIG`
+
+Disable RFC 9421 HTTP Message Signatures support.
+
 ## `CURL_DISABLE_CA_SEARCH`
 
 Disable unsafe CA bundle search in PATH on Windows.
@@ -120,10 +124,6 @@ Disable MQTT support.
 
 Disable the netrc parser.
 
-## `CURL_DISABLE_NTLM`
-
-Disable support for NTLM.
-
 ## `CURL_DISABLE_OPENSSL_AUTO_LOAD_CONFIG`
 
 Disable the auto load config support in the OpenSSL backend.
@@ -161,9 +161,9 @@ Disable the SHA-512/256 hash algorithm.
 
 Disable the shuffle DNS feature
 
-## `CURL_DISABLE_SMB`
+## `CURL_ENABLE_SMB`
 
-Disable the SMB(S) protocols
+Enable the SMB(S) protocols
 
 ## `CURL_DISABLE_SMTP`
 

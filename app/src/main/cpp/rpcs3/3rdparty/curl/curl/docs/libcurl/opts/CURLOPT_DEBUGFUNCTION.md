@@ -111,19 +111,18 @@ NULL
 # EXAMPLE
 
 ~~~c
-static
-void dump(const char *text,
-          FILE *stream, unsigned char *ptr, size_t size)
+static void dump(const char *text,
+                 FILE *stream, unsigned char *ptr, size_t size)
 {
   size_t i;
   size_t c;
   unsigned int width = 0x10;
 
-  fprintf(stream, "%s, %10.10ld bytes (0x%8.8lx)\n",
-          text, (long)size, (long)size);
+  fprintf(stream, "%s, %lu bytes (0x%lx)\n",
+          text, (unsigned long)size, (unsigned long)size);
 
   for(i = 0; i < size; i += width) {
-    fprintf(stream, "%4.4lx: ", (long)i);
+    fprintf(stream, "%4.4lx: ", (unsigned long)i);
 
     /* show hex to the left */
     for(c = 0; c < width; c++) {
@@ -135,7 +134,8 @@ void dump(const char *text,
 
     /* show data on the right */
     for(c = 0; (c < width) && (i + c < size); c++) {
-      char x = (ptr[i + c] >= 0x20 && ptr[i + c] < 0x80) ? ptr[i + c] : '.';
+      char x = (ptr[i + c] >= 0x20 && ptr[i + c] < 0x80)
+               ? (char)ptr[i + c] : '.';
       fputc(x, stream);
     }
 
@@ -143,10 +143,9 @@ void dump(const char *text,
   }
 }
 
-static
-int my_trace(CURL *handle, curl_infotype type,
-             char *data, size_t size,
-             void *clientp)
+static int my_trace(CURL *handle, curl_infotype type,
+                    char *data, size_t size,
+                    void *clientp)
 {
   const char *text;
   (void)handle;
@@ -156,6 +155,7 @@ int my_trace(CURL *handle, curl_infotype type,
   case CURLINFO_TEXT:
     fputs("== Info: ", stderr);
     fwrite(data, size, 1, stderr);
+    return 0;
   default: /* in case a new one is introduced to shock us */
     return 0;
 

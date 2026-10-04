@@ -18,14 +18,15 @@ namespace vk
 
 		//ensure(num_ubo > 0 && num_texel_buffers > 0 && num_combined_image_sampler > 0 && num_ssbo > 0);
 
-        if(num_texel_buffers==0){
-            return
-                    {
-                            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER , num_ubo },
-                            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER , num_combined_image_sampler },
-                            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, num_ssbo }
-                    };
-        }
+		if (num_texel_buffers == 0)
+		{
+			return
+			{
+				{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER , num_ubo },
+				{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER , num_combined_image_sampler },
+				{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, num_ssbo }
+			};
+		}
 
 		return
 		{

@@ -40,7 +40,7 @@ struct FtpFile {
   FILE *stream;
 };
 
-static size_t write_cb(void *buffer, size_t size, size_t nmemb, void *stream)
+static size_t write_cb(char *buffer, size_t size, size_t nmemb, void *stream)
 {
   struct FtpFile *out = (struct FtpFile *)stream;
   if(!out->stream) {
@@ -87,7 +87,7 @@ int main(void)
 
     if(result != CURLE_OK) {
       /* we failed */
-      fprintf(stderr, "curl told us %d\n", result);
+      fprintf(stderr, "curl told us %d\n", (int)result);
     }
   }
 

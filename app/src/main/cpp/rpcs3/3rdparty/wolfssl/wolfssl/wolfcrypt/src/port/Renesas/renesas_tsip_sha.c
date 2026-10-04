@@ -203,10 +203,11 @@ WOLFSSL_LOCAL int tsip_StoreMessage(struct WOLFSSL* ssl, const byte* data,
             WOLFSSL_MSG("Capacity over error in tsip_StoreMessage");
             ret = MEMORY_E;
         }
-
-        XMEMCPY(bag->buff + bag->buffIdx, data, sz);
-        bag->msgTypes[bag->msgIdx++] = *data;   /* store message type */
-        bag->buffIdx += sz;
+        else {
+            XMEMCPY(bag->buff + bag->buffIdx, data, sz);
+            bag->msgTypes[bag->msgIdx++] = *data;   /* store message type */
+            bag->buffIdx += sz;
+        }
     }
 
     WOLFSSL_LEAVE("tsip_StoreMessage", ret);
@@ -398,6 +399,7 @@ static int TSIPHashFinal(wolfssl_TSIP_Hash* hash, byte* out, word32 outSz)
         if (ret == TSIP_SUCCESS) {
             ret = Final(&handle, out, (uint32_t*)&sz);
             if (ret != TSIP_SUCCESS || sz != outSz) {
+                tsip_hw_unlock();
                 return ret;
             }
         }
@@ -442,6 +444,7 @@ static int TSIPHashGet(wolfssl_TSIP_Hash* hash, byte* out, word32 outSz)
         if (ret == TSIP_SUCCESS) {
             ret = Final(&handle, out, &sz);
             if (ret != TSIP_SUCCESS || sz != outSz) {
+                tsip_hw_unlock();
                 return ret;
             }
         }

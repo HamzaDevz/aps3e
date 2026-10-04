@@ -20,7 +20,6 @@
 */
 
 #include "SDL_internal.h"
-#include "SDL_waylandevents_c.h"
 
 #ifndef SDL_waylanddatamanager_h_
 #define SDL_waylanddatamanager_h_
@@ -167,7 +166,7 @@ extern bool Wayland_data_device_set_selection(SDL_WaylandDataDevice *device,
                                               size_t mime_count);
 extern bool Wayland_primary_selection_device_set_selection(SDL_WaylandPrimarySelectionDevice *device,
                                                            SDL_WaylandPrimarySelectionSource *source,
-                                                           const char **mime_types,
+                                                           const char *const *mime_types,
                                                            size_t mime_count);
 extern void Wayland_data_device_set_serial(SDL_WaylandDataDevice *device,
                                            uint32_t serial);

@@ -3,8 +3,9 @@ name: socat Tests
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '*' ]
 
 concurrency:
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   build_wolfssl:
     name: Build wolfSSL
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 4
     steps:
@@ -30,7 +31,7 @@ jobs:
         run: tar -zcf build-dir.tgz build-dir
 
       - name: Upload built lib
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wolf-install-socat
           path: build-dir.tgz
@@ -38,7 +39,7 @@ jobs:
 
 
   socat_check:
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 30
@@ -48,16 +49,24 @@ jobs:
       matrix:
         include:
           - socat_version: "1.8.0.0"
-            expect_fail: "36,64,146,216,309,310,386,399,402,403,459,460,467,468,475,478,491,492,528"
+            expect_fail: "36,64,146,155,156,216,307,309,310,321,386,399,402,403,459,460,467,468,475,478,491,492,528,529"
           - socat_version: "1.8.0.3"
-            expect_fail: "146,386,399,402,459,460,467,468,475,478,491,492,495,528"
+            expect_fail: "146,155,156,307,321,386,399,402,459,460,467,468,475,478,491,492,495,528,529"
     steps:
+      - name: Checkout wolfSSL CI actions
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+
       - name: Install prereqs
-        run:
-          sudo apt-get install build-essential autoconf libtool pkg-config clang libc++-dev
+        uses: ./.github/actions/install-apt-deps
+        with:
+          packages: build-essential autoconf libtool pkg-config clang libc++-dev
+          ghcr-debs-tag: ubuntu-24.04-full
 
       - name: Download lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: wolf-install-socat
 
@@ -68,10 +77,11 @@ jobs:
         run: curl -O http://www.dest-unreach.org/socat/download/socat-${{ matrix.socat_version }}.tar.gz && tar xvf socat-${{ matrix.socat_version }}.tar.gz
 
       - name: Checkout OSP
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: wolfssl/osp
           path: osp
+          fetch-depth: 1
 
       - name: Build socat
         working-directory: ./socat-${{ matrix.socat_version }}
@@ -79,11 +89,11 @@ jobs:
           patch -p1 < ../osp/socat/${{ matrix.socat_version }}/socat-${{ matrix.socat_version }}.patch
           autoreconf -vfi
           ./configure --with-wolfssl=$GITHUB_WORKSPACE/build-dir --enable-default-ipv=4
-          make
+          make -j
 
       - name: Run socat tests
         working-directory: ./socat-${{ matrix.socat_version }}
         run: |
           export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build-dir/lib:$LD_LIBRARY_PATH
           export SHELL=/bin/bash
-          SOCAT=$GITHUB_WORKSPACE/socat-${{ matrix.socat_version }}/socat ./test.sh -t 0.5 --expect-fail ${{ matrix.expect_fail }}
+          SOCAT=$GITHUB_WORKSPACE/socat-${{ matrix.socat_version }}/socat ./test.sh -t 1.0 --expect-fail ${{ matrix.expect_fail }}

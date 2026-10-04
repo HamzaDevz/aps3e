@@ -5,7 +5,7 @@
 #include "Emu/RSX/Overlays/overlay_select.h"
 #include "Emu/RSX/Overlays/overlay_slider.h"
 
-#include "Emu/System.h"
+#include "Emu/emu_callbacks.h"
 #include "Utilities/Config.h"
 
 #include "overlay_home_icons.h"
@@ -31,7 +31,7 @@ namespace rsx
 		struct home_menu_entry : horizontal_layout
 		{
 		public:
-			home_menu_entry(home_menu::fa_icon icon, const std::string& text, u16 width, text_align alignment = text_align::center);
+			home_menu_entry(home_menu::fa_icon icon, std::string_view text, u16 width, text_align alignment = text_align::center);
 		};
 
 		template <typename T, typename C>
@@ -125,7 +125,7 @@ namespace rsx
 			{
 				for (size_t index = 0; index < setting->size(); index++)
 				{
-					auto translated = Emu.GetCallbacks().get_localized_setting(home_menu_setting<T, cfg::_enum<T>>::m_setting, static_cast<u32>(index));
+					auto translated = g_emu_callbacks.get_localized_setting(home_menu_setting<T, cfg::_enum<T>>::m_setting, static_cast<u32>(index));
 					m_options.emplace_back(std::move(translated));
 				}
 			}

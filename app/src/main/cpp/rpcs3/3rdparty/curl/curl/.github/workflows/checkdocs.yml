@@ -11,6 +11,7 @@ name: 'Docs'
   push:
     branches:
       - master
+      - 'curl-*'
       - '*/ci'
     paths:
       - '.github/workflows/checkdocs.yml'
@@ -21,6 +22,7 @@ name: 'Docs'
   pull_request:
     branches:
       - master
+      - 'curl-*'
     paths:
       - '.github/workflows/checkdocs.yml'
       - '.github/scripts/**'
@@ -34,13 +36,16 @@ concurrency:
 
 permissions: {}
 
+env:
+  DO_NOT_TRACK: '1'
+
 jobs:
   # config file help: https://github.com/amperser/proselint/
   proselint:
     name: 'proselint'
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -89,9 +94,9 @@ jobs:
 
   pyspelling:
     name: 'pyspelling'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -99,8 +104,10 @@ jobs:
         run: .github/scripts/cleancmd.pl 'docs/*.md'
 
       - name: 'install'
+        timeout-minutes: 2
         run: |
-          sudo rm -f /etc/apt/sources.list.d/{azure-cli.sources,microsoft-prod.list,ondrej-ubuntu-php-noble.sources}
+          sudo find /etc/apt/sources.list.d -type f -not -name 'ubuntu.sources' -delete -print
+          sudo sed -i 's/priority:1/priority:9/' /etc/apt/apt-mirrors.txt; cat /etc/apt/apt-mirrors.txt
           sudo apt-get -o Dpkg::Use-Pty=0 update
           sudo apt-get -o Dpkg::Use-Pty=0 install aspell aspell-en
           python3 -m venv ~/venv
@@ -117,14 +124,26 @@ jobs:
 
   synopsis-man-examples:
     name: 'synopsis, man-examples'
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: 'verify synopsis'
         run: .github/scripts/verify-synopsis.pl docs/libcurl/curl*.md
 
-      - name: 'verify examples'
-        run: .github/scripts/verify-examples.pl docs/libcurl/curl*.md docs/libcurl/opts/*.md
+      - name: 'verify examples (gcc)'
+        run: |
+          cmake -B bld-gcc -G Ninja -D_CURL_PREFILL=ON -DCURL_USE_LIBPSL=OFF -DCURL_WERROR=ON -D_CURL_SAVE_PICKY_OPTIONS=ON
+          export CFLAGS; CFLAGS="$(cat bld-gcc/picky-options.txt)"
+          echo "${CFLAGS}"
+          .github/scripts/verify-examples.pl docs/libcurl/curl*.md docs/libcurl/opts/*.md
+
+      - name: 'verify examples (clang)'
+        run: |
+          export CC=clang
+          cmake -B bld-clang -G Ninja -D_CURL_PREFILL=ON -DCURL_USE_LIBPSL=OFF -DCURL_WERROR=ON -D_CURL_SAVE_PICKY_OPTIONS=ON
+          export CFLAGS; CFLAGS="$(cat bld-clang/picky-options.txt)"
+          echo "${CFLAGS}"
+          .github/scripts/verify-examples.pl docs/libcurl/curl*.md docs/libcurl/opts/*.md

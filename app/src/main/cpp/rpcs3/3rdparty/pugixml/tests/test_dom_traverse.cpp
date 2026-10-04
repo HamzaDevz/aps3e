@@ -183,6 +183,9 @@ TEST_XML(dom_attr_as_bool, "<node attr1='0' attr2='1' attr3='true' attr4='True' 
 	CHECK(node.attribute(STR("attr5")).as_bool());
 	CHECK(node.attribute(STR("attr6")).as_bool());
 	CHECK(!node.attribute(STR("attr7")).as_bool());
+
+	xml_attribute attr = node.append_attribute(STR("attr8"));
+	CHECK(attr.as_bool(true) == true);
 }
 
 #ifdef PUGIXML_HAS_LONG_LONG
@@ -896,7 +899,7 @@ struct test_walker: xml_tree_walker
 	#endif
 	}
 
-	virtual bool begin(xml_node& node) PUGIXML_OVERRIDE
+	bool begin(xml_node& node) PUGIXML_OVERRIDE
 	{
 		log += STR("|");
 		log += depthstr();
@@ -908,7 +911,7 @@ struct test_walker: xml_tree_walker
 		return ++call_count != stop_count && xml_tree_walker::begin(node);
 	}
 
-	virtual bool for_each(xml_node& node) PUGIXML_OVERRIDE
+	bool for_each(xml_node& node) PUGIXML_OVERRIDE
 	{
 		log += STR("|");
 		log += depthstr();
@@ -920,7 +923,7 @@ struct test_walker: xml_tree_walker
 		return ++call_count != stop_count && xml_tree_walker::end(node);
 	}
 
-	virtual bool end(xml_node& node) PUGIXML_OVERRIDE
+	bool end(xml_node& node) PUGIXML_OVERRIDE
 	{
 		log += STR("|");
 		log += depthstr();

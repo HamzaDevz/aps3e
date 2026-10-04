@@ -96,6 +96,7 @@ my $listenaddr = '127.0.0.1'; # default address on which to listen
 my $ipvnum = 4;               # default IP version of listener address
 my $idnum = 1;                # default ssh daemon instance number
 my $proto = 'ssh';            # protocol the ssh daemon speaks
+my $keyalgo = 'rsa';          # key algorithm
 my $path = getcwd();          # current working directory
 my $logdir = $path .'/log';   # directory for log files
 my $piddir;                   # directory for server config files
@@ -188,6 +189,12 @@ while(@ARGV) {
                 $port = $1;
                 shift @ARGV;
             }
+        }
+    }
+    elsif($ARGV[0] eq '--keyalgo') {
+        if($ARGV[1]) {
+            $keyalgo = $ARGV[1];
+            shift @ARGV;
         }
     }
     else {
@@ -373,6 +380,7 @@ if((($sshid =~ /OpenSSH/) && ($sshvernum < 299)) ||
 #  -N:  new passphrase   : OpenSSH 1.2.1 and later
 #  -q:  quiet keygen     : OpenSSH 1.2.1 and later
 #  -t:  key type         : OpenSSH 2.5.0 and later
+#  -m:  key format       : OpenSSH 5.6.0 and later
 #
 #  -C:  identity comment : SunSSH 1.0.0 and later
 #  -f:  key filename     : SunSSH 1.0.0 and later
@@ -397,27 +405,23 @@ if((! -e pp($hstprvkeyf)) || (! -s pp($hstprvkeyf)) ||
     unlink(pp($hstprvkeyf), pp($hstpubkeyf), pp($hstpubmd5f),
            pp($hstpubsha256f), pp($cliprvkeyf), pp($clipubkeyf));
 
-    my $sshkeygenopt = '';
-    if(($sshid =~ /OpenSSH/) && ($sshvernum >= 560)) {
+    my @sshkeygenopt;
+    if(($sshid =~ /OpenSSH/) && ($sshvernum >= 560) && ($keyalgo ne 'ed25519')) {
         # Override the default key format. Necessary to force legacy PEM format
         # for libssh2 crypto backends that do not understand the OpenSSH (RFC4716)
         # format, e.g. WinCNG.
         # Accepted values: RFC4716, PKCS8, PEM (see also 'man ssh-keygen')
-        if($ENV{'CURL_TEST_SSH_KEY_FORMAT'}) {
-            $sshkeygenopt .= ' -m ' . $ENV{'CURL_TEST_SSH_KEY_FORMAT'};
-        }
-        else {
-            $sshkeygenopt .= ' -m PEM';  # Use the most compatible RSA format for tests.
-        }
+        # Default to the most compatible format for tests.
+        push @sshkeygenopt, '-m', $ENV{'CURL_TEST_SSH_KEY_FORMAT'} ? $ENV{'CURL_TEST_SSH_KEY_FORMAT'} : 'PEM';
     }
     logmsg "generating host keys...\n" if($verbose);
-    if(system "\"$sshkeygen\" -q -t rsa -f " . pp($hstprvkeyf) . " -C 'curl test server' -N ''" . $sshkeygenopt) {
+    if(system($sshkeygen, ('-q', '-t', $keyalgo, '-f', pp($hstprvkeyf), '-C', 'curl test server', '-N', '', @sshkeygenopt))) {
         logmsg "Could not generate host key\n";
         exit 1;
     }
     display_file_top(pp($hstprvkeyf)) if($verbose);
     logmsg "generating client keys...\n" if($verbose);
-    if(system "\"$sshkeygen\" -q -t rsa -f " . pp($cliprvkeyf) . " -C 'curl test client' -N ''" . $sshkeygenopt) {
+    if(system($sshkeygen, ('-q', '-t', $keyalgo, '-f', pp($cliprvkeyf), '-C', 'curl test client', '-N', '', @sshkeygenopt))) {
         logmsg "Could not generate client key\n";
         exit 1;
     }
@@ -427,35 +431,35 @@ if((! -e pp($hstprvkeyf)) || (! -s pp($hstprvkeyf)) ||
     chmod 0600, pp($cliprvkeyf);
     if(($^O eq 'cygwin' || $^O eq 'msys') && -e "/bin/setfacl") {
         # https://cygwin.com/cygwin-ug-net/setfacl.html
-        system "/bin/setfacl --remove-all " . pp($hstprvkeyf);
+        system('/bin/setfacl', ('--remove-all', pp($hstprvkeyf)));
     }
     elsif(pathhelp::os_is_win()) {
         # https://ss64.com/nt/icacls.html
         $ENV{'MSYS2_ARG_CONV_EXCL'} = '/reset';
-        system "icacls \"" . pathhelp::sys_native_abs_path(pp($hstprvkeyf)) . "\" /reset";
-        system "icacls \"" . pathhelp::sys_native_abs_path(pp($hstprvkeyf)) . "\" /grant:r \"$username:(R)\"";
-        system "icacls \"" . pathhelp::sys_native_abs_path(pp($hstprvkeyf)) . "\" /inheritance:r";
+        system('icacls', (pathhelp::sys_native_abs_path(pp($hstprvkeyf)), '/reset'));
+        system('icacls', (pathhelp::sys_native_abs_path(pp($hstprvkeyf)), '/grant:r', "$username:(R)"));
+        system('icacls', (pathhelp::sys_native_abs_path(pp($hstprvkeyf)), '/inheritance:r'));
     }
     # Save md5 and sha256 hashes of public host key
     open(my $rsakeyfile, "<", pp($hstpubkeyf));
     my @rsahostkey = do { local $/ = ' '; <$rsakeyfile> };
     close($rsakeyfile);
     if(!$rsahostkey[1]) {
-        logmsg "Failed parsing base64 encoded RSA host key\n";
+        logmsg "Failed parsing base64 encoded SSH host key\n";
         exit 1;
     }
     open(my $pubmd5file, ">", pp($hstpubmd5f));
     print $pubmd5file md5_hex(decode_base64($rsahostkey[1]));
     close($pubmd5file);
     if((! -e pp($hstpubmd5f)) || (! -s pp($hstpubmd5f))) {
-        logmsg "Failed writing md5 hash of RSA host key\n";
+        logmsg "Failed writing MD5 hash of SSH host key\n";
         exit 1;
     }
     open(my $pubsha256file, ">", pp($hstpubsha256f));
     print $pubsha256file sha256_base64(decode_base64($rsahostkey[1]));
     close($pubsha256file);
     if((! -e pp($hstpubsha256f)) || (! -s pp($hstpubsha256f))) {
-        logmsg "Failed writing sha256 hash of RSA host key\n";
+        logmsg "Failed writing SHA256 hash of SSH host key\n";
         exit 1;
     }
 }
@@ -528,6 +532,7 @@ else {
 #  KerberosOrLocalPasswd            : OpenSSH 1.2.1 and later [1]
 #  KerberosTgtPassing               : OpenSSH 1.2.1 and later [1]
 #  KerberosTicketCleanup            : OpenSSH 1.2.1 and later [1]
+#  KexAlgorithms                    : OpenSSH 5.7.0 and later (7.0.0 for '+' support, 7.5.0 for '-' support)
 #  KeyRegenerationInterval          : OpenSSH 1.2.1 till 7.3
 #  ListenAddress                    : OpenSSH 1.2.1 and later
 #  LoginGraceTime                   : OpenSSH 1.2.1 and later
@@ -583,15 +588,14 @@ push @cfgarr, "# $sshdverstr sshd configuration file for curl testing";
 push @cfgarr, '#';
 
 # AllowUsers and DenyUsers options should use lowercase on Windows
-# and do not support quotes around values for some unknown reason.
+# and do not support quotes around values for an unknown reason.
 if($sshdid =~ /OpenSSH-Windows/) {
     my $username_lc = lc $username;
-    push @cfgarr, "AllowUsers " . $username_lc =~ s/ /\?/gr;
+    push @cfgarr, "AllowUsers " . ($username_lc =~ s/ /\?/gr);  # replace space with '?'
     if(exists $ENV{USERDOMAIN}) {
         my $userdomain_lc = lc $ENV{USERDOMAIN};
         $username_lc = "$userdomain_lc\\$username_lc";
-        $username_lc =~ s/ /\?/g; # replace space with ?
-        push @cfgarr, "AllowUsers " . $username_lc =~ s/ /\?/gr;
+        push @cfgarr, "AllowUsers " . ($username_lc =~ s/ /\?/gr);  # replace space with '?'
     }
 } else {
     push @cfgarr, "AllowUsers $username";
@@ -606,9 +610,9 @@ if($sshdid !~ /OpenSSH-Windows/) {
     push @cfgarr, "PidFile $pidfile_config";
     push @cfgarr, '#';
 }
-if(($sshdid =~ /OpenSSH/) && ($sshdvernum >= 880)) {
+if(($sshdid =~ /OpenSSH/) && ($sshdvernum >= 880) && ($keyalgo eq 'rsa')) {
     push @cfgarr, 'HostKeyAlgorithms +ssh-rsa';
-    push @cfgarr, 'PubkeyAcceptedKeyTypes +ssh-rsa';
+    push @cfgarr, 'PubkeyAcceptedAlgorithms +ssh-rsa';  # named PubkeyAcceptedKeyTypes in OpenSSH <8.5
 }
 push @cfgarr, '#';
 push @cfgarr, "Port $port";
@@ -625,6 +629,12 @@ push @cfgarr, 'HostbasedAuthentication no';
 push @cfgarr, 'HostbasedUsesNameFromPacketOnly no';
 push @cfgarr, 'IgnoreRhosts yes';
 push @cfgarr, 'IgnoreUserKnownHosts yes';
+if(($sshdid =~ /OpenSSH/) && ($sshdvernum >= 700) && $ENV{'CURL_TEST_SSH_ENABLE_KEX'}) {
+    push @cfgarr, 'KexAlgorithms +' . $ENV{'CURL_TEST_SSH_ENABLE_KEX'};
+}
+if(($sshdid =~ /OpenSSH/) && ($sshdvernum >= 750) && $ENV{'CURL_TEST_SSH_DISABLE_KEX'}) {
+    push @cfgarr, 'KexAlgorithms -' . $ENV{'CURL_TEST_SSH_DISABLE_KEX'};
+}
 push @cfgarr, 'LoginGraceTime 30';
 push @cfgarr, "LogLevel $loglevel";
 push @cfgarr, 'MaxStartups 5';
@@ -667,7 +677,7 @@ sub sshd_supports_opt {
         ($sshdid =~ /SunSSH/)) {
         # ssh daemon supports command line options -t -f and -o
         $err = grep /((Unsupported)|(Bad configuration)|(Deprecated)) option.*$option/,
-                    `\"$sshd\" -t -f $sshdconfig_abs -o \"$option=$value\" 2>&1`;
+                    qx(\"$sshd\" -t -f $sshdconfig_abs -o \"$option=$value\" 2>&1);
         return !$err;
     }
     if(($sshdid =~ /OpenSSH/) && ($sshdvernum >= 299)) {
@@ -678,7 +688,7 @@ sub sshd_supports_opt {
             return 0;
         }
         $err = grep /((Unsupported)|(Bad configuration)|(Deprecated)) option.*$option/,
-                    `\"$sshd\" -t -f $sshdconfig_abs 2>&1`;
+                    qx(\"$sshd\" -t -f $sshdconfig_abs 2>&1);
         unlink $sshdconfig;
         return !$err;
     }
@@ -688,33 +698,33 @@ sub sshd_supports_opt {
 #***************************************************************************
 # Kerberos Authentication support may have not been built into sshd
 #
-if(sshd_supports_opt('KerberosAuthentication','no')) {
+if(sshd_supports_opt('KerberosAuthentication', 'no')) {
     push @cfgarr, 'KerberosAuthentication no';
 }
-if(sshd_supports_opt('KerberosGetAFSToken','no')) {
+if(sshd_supports_opt('KerberosGetAFSToken', 'no')) {
     push @cfgarr, 'KerberosGetAFSToken no';
 }
-if(sshd_supports_opt('KerberosOrLocalPasswd','no')) {
+if(sshd_supports_opt('KerberosOrLocalPasswd', 'no')) {
     push @cfgarr, 'KerberosOrLocalPasswd no';
 }
-if(sshd_supports_opt('KerberosTgtPassing','no')) {
+if(sshd_supports_opt('KerberosTgtPassing', 'no')) {
     push @cfgarr, 'KerberosTgtPassing no';
 }
-if(sshd_supports_opt('KerberosTicketCleanup','yes')) {
+if(sshd_supports_opt('KerberosTicketCleanup', 'yes')) {
     push @cfgarr, 'KerberosTicketCleanup yes';
 }
 
 #***************************************************************************
 # Andrew File System support may have not been built into sshd
 #
-if(sshd_supports_opt('AFSTokenPassing','no')) {
+if(sshd_supports_opt('AFSTokenPassing', 'no')) {
     push @cfgarr, 'AFSTokenPassing no';
 }
 
 #***************************************************************************
 # S/Key authentication support may have not been built into sshd
 #
-if(sshd_supports_opt('SkeyAuthentication','no')) {
+if(sshd_supports_opt('SkeyAuthentication', 'no')) {
     push @cfgarr, 'SkeyAuthentication no';
 }
 
@@ -722,23 +732,23 @@ if(sshd_supports_opt('SkeyAuthentication','no')) {
 # GSSAPI Authentication support may have not been built into sshd
 #
 my $sshd_builtwith_GSSAPI;
-if(sshd_supports_opt('GSSAPIAuthentication','no')) {
+if(sshd_supports_opt('GSSAPIAuthentication', 'no')) {
     push @cfgarr, 'GSSAPIAuthentication no';
     $sshd_builtwith_GSSAPI = 1;
 }
-if(sshd_supports_opt('GSSAPICleanupCredentials','yes')) {
+if(sshd_supports_opt('GSSAPICleanupCredentials', 'yes')) {
     push @cfgarr, 'GSSAPICleanupCredentials yes';
 }
-if(sshd_supports_opt('GSSAPIKeyExchange','no')) {
+if(sshd_supports_opt('GSSAPIKeyExchange', 'no')) {
     push @cfgarr, 'GSSAPIKeyExchange no';
 }
-if(sshd_supports_opt('GSSAPIStoreDelegatedCredentials','no')) {
+if(sshd_supports_opt('GSSAPIStoreDelegatedCredentials', 'no')) {
     push @cfgarr, 'GSSAPIStoreDelegatedCredentials no';
 }
-if(sshd_supports_opt('GSSCleanupCreds','yes')) {
+if(sshd_supports_opt('GSSCleanupCreds', 'yes')) {
     push @cfgarr, 'GSSCleanupCreds yes';
 }
-if(sshd_supports_opt('GSSUseSessionCredCache','no')) {
+if(sshd_supports_opt('GSSUseSessionCredCache', 'no')) {
     push @cfgarr, 'GSSUseSessionCredCache no';
 }
 push @cfgarr, '#';
@@ -750,54 +760,54 @@ if(sshd_supports_opt('AddressFamily','any')) {
     # Address family must be specified before ListenAddress
     splice @cfgarr, 11, 0, 'AddressFamily any';
 }
-if(sshd_supports_opt('Compression','no')) {
+if(sshd_supports_opt('Compression', 'no')) {
     push @cfgarr, 'Compression no';
 }
-if(sshd_supports_opt('KbdInteractiveAuthentication','no')) {
+if(sshd_supports_opt('KbdInteractiveAuthentication', 'no')) {
     push @cfgarr, 'KbdInteractiveAuthentication no';
 }
-if(sshd_supports_opt('KeepAlive','no')) {
+if(sshd_supports_opt('KeepAlive', 'no')) {
     push @cfgarr, 'KeepAlive no';
 }
-if(sshd_supports_opt('LookupClientHostnames','no')) {
+if(sshd_supports_opt('LookupClientHostnames', 'no')) {
     push @cfgarr, 'LookupClientHostnames no';
 }
 if(sshd_supports_opt('MaxAuthTries','10')) {
     push @cfgarr, 'MaxAuthTries 10';
 }
-if(sshd_supports_opt('PAMAuthenticationViaKbdInt','no')) {
+if(sshd_supports_opt('PAMAuthenticationViaKbdInt', 'no')) {
     push @cfgarr, 'PAMAuthenticationViaKbdInt no';
 }
-if(sshd_supports_opt('PermitTunnel','no')) {
+if(sshd_supports_opt('PermitTunnel', 'no')) {
     push @cfgarr, 'PermitTunnel no';
 }
-if(sshd_supports_opt('PermitUserEnvironment','no')) {
+if(sshd_supports_opt('PermitUserEnvironment', 'no')) {
     push @cfgarr, 'PermitUserEnvironment no';
 }
-if(sshd_supports_opt('RhostsAuthentication','no')) {
+if(sshd_supports_opt('RhostsAuthentication', 'no')) {
     push @cfgarr, 'RhostsAuthentication no';
 }
-if(sshd_supports_opt('TCPKeepAlive','no')) {
+if(sshd_supports_opt('TCPKeepAlive', 'no')) {
     push @cfgarr, 'TCPKeepAlive no';
 }
-if(sshd_supports_opt('UseDNS','no')) {
+if(sshd_supports_opt('UseDNS', 'no')) {
     push @cfgarr, 'UseDNS no';
 }
-if(sshd_supports_opt('UsePAM','no')) {
+if(sshd_supports_opt('UsePAM', 'no')) {
     push @cfgarr, 'UsePAM no';
 }
 
 if($sshdid =~ /OpenSSH/) {
     # http://bugs.opensolaris.org/bugdatabase/view_bug.do?bug_id=6492415
-    if(sshd_supports_opt('UsePrivilegeSeparation','no')) {
+    if(sshd_supports_opt('UsePrivilegeSeparation', 'no')) {
         push @cfgarr, 'UsePrivilegeSeparation no';
     }
 }
 
-if(sshd_supports_opt('VerifyReverseMapping','no')) {
+if(sshd_supports_opt('VerifyReverseMapping', 'no')) {
     push @cfgarr, 'VerifyReverseMapping no';
 }
-if(sshd_supports_opt('X11UseLocalhost','yes')) {
+if(sshd_supports_opt('X11UseLocalhost', 'yes')) {
     push @cfgarr, 'X11UseLocalhost yes';
 }
 push @cfgarr, '#';
@@ -814,7 +824,7 @@ if($error) {
 #***************************************************************************
 # Verify that sshd actually supports our generated configuration file
 #
-if(system "\"$sshd\" -t -f $sshdconfig_abs > $sshdlog 2>&1") {
+if(system("\"$sshd\" -t -f $sshdconfig_abs > $sshdlog 2>&1")) {
     logmsg "sshd configuration file $sshdconfig failed verification\n";
     display_sshdlog();
     display_sshdconfig();
@@ -827,11 +837,12 @@ if(system "\"$sshd\" -t -f $sshdconfig_abs > $sshdlog 2>&1") {
 if((! -e pp($knownhosts)) || (! -s pp($knownhosts))) {
     logmsg "generating ssh client known hosts file...\n" if($verbose);
     unlink(pp($knownhosts));
-    if(open(my $rsakeyfile, "<", pp($hstpubkeyf))) {
-        my @rsahostkey = do { local $/ = ' '; <$rsakeyfile> };
-        if(close($rsakeyfile)) {
+    if(open(my $keyfile, "<", pp($hstpubkeyf))) {
+        chomp(my $line = <$keyfile>);
+        if(close($keyfile)) {
             if(open(my $knownhostsh, ">", pp($knownhosts))) {
-                print $knownhostsh "$listenaddr ssh-rsa $rsahostkey[1]\n";
+                my @hostkey = split /\s+/, $line;
+                print $knownhostsh "$listenaddr $hostkey[0] $hostkey[1]\n";
                 if(!close($knownhostsh)) {
                     $error = "Error: cannot close file $knownhosts";
                 }
@@ -1164,7 +1175,7 @@ logmsg "RUN: $cmd\n" if($verbose);
 #
 if($sshdid =~ /OpenSSH-Windows/) {
     # Fake pidfile for ssh server on Windows.
-    if(open(my $out, ">", "$pidfile")) {
+    if(open(my $out, ">", $pidfile)) {
         print $out $$ . "\n";
         close($out);
     }
@@ -1174,12 +1185,12 @@ if($sshdid =~ /OpenSSH-Windows/) {
 
     # Put an "exec" in front of the command so that the child process
     # keeps this child's process ID by being tied to the spawned shell.
-    exec("exec $cmd") || die "Cannot exec() $cmd: $!";
-    # exec() will create a new process, but ties the existence of the
+    exec("exec $cmd") or die "Cannot exec() $cmd: $!";
+    # exec() creates a new process, but ties the existence of the
     # new process to the parent waiting perl.exe and sh.exe processes.
 
     # exec() should never return back here to this process. We protect
-    # ourselves by calling die() just in case something goes really bad.
+    # ourselves by calling die() in case something goes really bad.
     die "error: exec() has returned";
 }
 

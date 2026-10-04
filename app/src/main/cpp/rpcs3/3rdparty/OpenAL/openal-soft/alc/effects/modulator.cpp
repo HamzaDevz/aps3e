@@ -23,7 +23,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <numbers>
@@ -32,7 +31,6 @@
 #include <variant>
 
 #include "alc/effects/base.h"
-#include "alnumeric.h"
 #include "core/ambidefs.h"
 #include "core/bufferline.h"
 #include "core/context.h"
@@ -50,22 +48,23 @@ struct BufferStorage;
 namespace {
 
 struct SinFunc {
-    static auto Get(u32 const index, float const scale) noexcept(noexcept(std::sin(0.0f))) -> float
+    static
+    auto Get(unsigned const index, float const scale) noexcept(noexcept(std::sin(0.0f))) -> float
     { return std::sin(gsl::narrow_cast<float>(index) * scale); }
 };
 
 struct SawFunc {
-    static constexpr auto Get(u32 const index, const float scale) noexcept -> float
+    static constexpr auto Get(unsigned const index, const float scale) noexcept -> float
     { return gsl::narrow_cast<float>(index)*scale - 1.0f; }
 };
 
 struct SquareFunc {
-    static constexpr auto Get(u32 const index, const float scale) noexcept -> float
+    static constexpr auto Get(unsigned const index, const float scale) noexcept -> float
     { return gsl::narrow_cast<float>(gsl::narrow_cast<float>(index)*scale < 0.5f)*2.0f - 1.0f; }
 };
 
 struct OneFunc {
-    static constexpr auto Get(u32 const, const float) noexcept -> float
+    static constexpr auto Get(unsigned const, const float) noexcept -> float
     { return 1.0f; }
 };
 
@@ -73,15 +72,15 @@ struct OneFunc {
 struct ModulatorState final : public EffectState {
     std::variant<OneFunc,SinFunc,SawFunc,SquareFunc> mSampleGen;
 
-    u32 mIndex{0};
-    u32 mRange{1};
+    unsigned mIndex{0};
+    unsigned mRange{1};
     float mIndexScale{0.0f};
 
     alignas(16) FloatBufferLine mModSamples{};
     alignas(16) FloatBufferLine mBuffer{};
 
     struct OutParams {
-        u32 mTargetChannel{InvalidChannelIndex};
+        unsigned mTargetChannel{InvalidChannelIndex.c_val};
 
         BiquadFilter mFilter;
 
@@ -119,8 +118,8 @@ void ModulatorState::update(const ContextBase *context, const EffectSlotBase *sl
      */
     const auto samplesPerCycle = props.Frequency > 0.0f
         ? samplerate/props.Frequency + 0.5f : 1.0f;
-    const auto range = static_cast<u32>(std::clamp(samplesPerCycle, 1.0f, samplerate));
-    mIndex = static_cast<u32>(u64{mIndex} * range / mRange);
+    const auto range = static_cast<unsigned>(std::clamp(samplesPerCycle, 1.0f, samplerate));
+    mIndex = static_cast<unsigned>((u64{mIndex} * u64{range} / u64{mRange}).c_val);
     mRange = range;
 
     if(mRange == 1)
@@ -158,9 +157,9 @@ void ModulatorState::update(const ContextBase *context, const EffectSlotBase *sl
 
     mOutTarget = target.Main->Buffer;
     target.Main->setAmbiMixParams(slot->Wet, slot->Gain,
-        [this](usize const idx, u32 const outchan, f32 const outgain)
+        [this](std::size_t const idx, u8 const outchan, float const outgain)
     {
-        mChans[idx].mTargetChannel = outchan;
+        mChans[idx].mTargetChannel = outchan.c_val;
         mChans[idx].mTargetGain = outgain;
     });
 }
@@ -182,9 +181,9 @@ void ModulatorState::process(const size_t samplesToDo,
         auto moditer = mModSamples.begin();
         for(auto i = 0_uz;i < samplesToDo;)
         {
-            const auto rem = std::min(static_cast<u32>(samplesToDo-i), range-index);
+            const auto rem = std::min(static_cast<unsigned>(samplesToDo-i), range-index);
             moditer = std::ranges::transform(std::views::iota(index, index+rem), moditer,
-                [scale](u32 const idx) { return Modulator::Get(idx, scale); }).out;
+                [scale](unsigned const idx) { return Modulator::Get(idx, scale); }).out;
 
             i += rem;
             index += rem;

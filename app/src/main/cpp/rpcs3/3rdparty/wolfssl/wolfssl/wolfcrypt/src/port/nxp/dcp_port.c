@@ -31,6 +31,12 @@
 #include <wolfssl/wolfcrypt/sha.h>
 #include <wolfssl/wolfcrypt/sha256.h>
 #include <wolfssl/wolfcrypt/error-crypt.h>
+#ifdef NO_INLINE
+    #include <wolfssl/wolfcrypt/misc.h>
+#else
+    #define WOLFSSL_MISC_INCLUDED
+    #include <wolfcrypt/src/misc.c>
+#endif
 
 #if defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1U) && defined(DCP_USE_DCACHE) && (DCP_USE_DCACHE == 1U)
 #error "DCACHE not supported by this driver. Please undefine DCP_USE_DCACHE."
@@ -205,14 +211,18 @@ int DCPAesInit(Aes *aes)
     return 0;
 }
 
+static unsigned char  aes_key_aligned[16] __attribute__((aligned(0x10)));
+
 void DCPAesFree(Aes *aes)
 {
+    dcp_lock();
+    ForceZero(aes_key_aligned, sizeof(aes_key_aligned));
+    dcp_unlock();
     dcp_free(aes->handle.channel);
     aes->handle.channel = 0;
 }
 
 
-static unsigned char  aes_key_aligned[16] __attribute__((aligned(0x10)));
 int  DCPAesSetKey(Aes* aes, const byte* key, word32 len, const byte* iv,
                           int dir)
 {
@@ -231,8 +241,9 @@ int  DCPAesSetKey(Aes* aes, const byte* key, word32 len, const byte* iv,
             return WC_HW_E;
     }
     dcp_lock();
-    memcpy(aes_key_aligned, key, 16);
+    XMEMCPY(aes_key_aligned, key, 16);
     status = DCP_AES_SetKey(DCP, &aes->handle, aes_key_aligned, 16);
+    ForceZero(aes_key_aligned, sizeof(aes_key_aligned));
     if (status != kStatus_Success)
         status = WC_HW_E;
     else {
@@ -255,7 +266,7 @@ int  DCPAesCbcEncrypt(Aes* aes, byte* out, const byte* in, word32 sz)
     if (ret)
         ret = WC_HW_E;
     else
-        XMEMCPY(aes->reg, out, WC_AES_BLOCK_SIZE);
+        XMEMCPY(aes->reg, out + sz - WC_AES_BLOCK_SIZE, WC_AES_BLOCK_SIZE);
     dcp_unlock();
     return ret;
 }
@@ -265,12 +276,15 @@ int  DCPAesCbcDecrypt(Aes* aes, byte* out, const byte* in, word32 sz)
     int ret;
     if (sz % 16)
         return BAD_FUNC_ARG;
+    /* Snapshot last ciphertext block before decrypt; in-place decryption
+     * (in == out) overwrites the input with plaintext. */
+    XMEMCPY(aes->tmp, in + sz - WC_AES_BLOCK_SIZE, WC_AES_BLOCK_SIZE);
     dcp_lock();
     ret = DCP_AES_DecryptCbc(DCP, &aes->handle, in, out, sz, (const byte *)aes->reg);
     if (ret)
         ret = WC_HW_E;
     else
-        XMEMCPY(aes->reg, in, WC_AES_BLOCK_SIZE);
+        XMEMCPY(aes->reg, aes->tmp, WC_AES_BLOCK_SIZE);
     dcp_unlock();
     return ret;
 }
@@ -366,7 +380,7 @@ int wc_Sha256GetHash(wc_Sha256* sha256, byte* hash)
     else
         XMEMCPY(&sha256->ctx, &saved_ctx, sizeof(dcp_hash_ctx_t));
     dcp_unlock();
-    return 0;
+    return ret;
 }
 
 int wc_Sha256Final(wc_Sha256* sha256, byte* hash)
@@ -379,7 +393,7 @@ int wc_Sha256Final(wc_Sha256* sha256, byte* hash)
         ret = WC_HW_E;
     else {
         ret = DCP_HASH_Init(DCP, &sha256->handle, &sha256->ctx, kDCP_Sha256);
-        if (ret < 0)
+        if (ret != kStatus_Success)
             ret = WC_HW_E;
     }
     dcp_unlock();
@@ -478,7 +492,7 @@ int wc_ShaGetHash(wc_Sha* sha, byte* hash)
     else
         XMEMCPY(&sha->ctx, &saved_ctx, sizeof(dcp_hash_ctx_t));
     dcp_unlock();
-    return 0;
+    return ret;
 }
 
 int wc_ShaFinal(wc_Sha* sha, byte* hash)
@@ -491,7 +505,7 @@ int wc_ShaFinal(wc_Sha* sha, byte* hash)
         ret = WC_HW_E;
     } else {
         ret = DCP_HASH_Init(DCP, &sha->handle, &sha->ctx, kDCP_Sha1);
-        if (ret < 0)
+        if (ret != kStatus_Success)
             ret = WC_HW_E;
     }
     dcp_unlock();

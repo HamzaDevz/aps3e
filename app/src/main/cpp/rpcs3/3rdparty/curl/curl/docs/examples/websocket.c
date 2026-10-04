@@ -30,7 +30,7 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <windows.h>
-#define sleep(s) Sleep((DWORD)(s))
+#define sleep(s) Sleep((DWORD)((s) * 1000))
 #else
 #include <unistd.h>
 #endif
@@ -73,7 +73,7 @@ retry:
   result = curl_ws_recv(curl, buffer, sizeof(buffer), &rlen, &meta);
   if(result == CURLE_OK) {
     /* on small PING content, this example assumes the complete
-     * PONG content arrives in one go. Larger frames will arrive
+     * PONG content arrives in one go. Larger frames arrive
      * in chunks, however. */
     if(meta->flags & CURLWS_PONG) {
       int same = 0;
@@ -94,7 +94,7 @@ retry:
     else {
       /* some other frame arrived. */
       fprintf(stderr, "ws: received frame of %u bytes rflags %x\n",
-              (unsigned int)rlen, meta->flags);
+              (unsigned int)rlen, (unsigned int)meta->flags);
       goto retry;
     }
   }

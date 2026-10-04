@@ -57,6 +57,7 @@ NULL
 ~~~c
 int main(void)
 {
+  CURL *curl;
   struct curl_httppost *formpost;
   struct curl_httppost *lastptr;
 
@@ -82,10 +83,11 @@ int main(void)
                CURLFORM_COPYCONTENTS, "send",
                CURLFORM_END);
 
-  CURL *curl = curl_easy_init();
+  curl = curl_easy_init();
   if(curl) {
+    CURLcode result;
     curl_easy_setopt(curl, CURLOPT_HTTPPOST, formpost);
-    curl_easy_perform(curl);
+    result = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
   }
   curl_formfree(formpost);

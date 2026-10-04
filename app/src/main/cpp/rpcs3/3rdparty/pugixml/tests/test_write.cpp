@@ -237,7 +237,7 @@ struct test_writer: xml_writer
 {
 	std::basic_string<char_t> contents;
 
-	virtual void write(const void* data, size_t size) PUGIXML_OVERRIDE
+	void write(const void* data, size_t size) PUGIXML_OVERRIDE
 	{
 		CHECK(size % sizeof(char_t) == 0);
 		contents.append(static_cast<const char_t*>(data), size / sizeof(char_t));
@@ -572,12 +572,36 @@ TEST(write_pcdata_null)
 	xml_document doc;
 	doc.append_child(STR("node")).append_child(node_pcdata);
 
-	CHECK_NODE(doc, STR("<node></node>"));
-	CHECK_NODE_EX(doc, STR("<node></node>\n"), STR("\t"), format_indent);
+	CHECK_NODE(doc, STR("<node/>"));
+	CHECK_NODE_EX(doc, STR("<node />\n"), STR("\t"), format_indent);
+	CHECK_NODE_EX(doc, STR("<node></node>"), STR("\t"), format_raw | format_no_empty_element_tags);
+	CHECK_NODE_EX(doc, STR("<node></node>\n"), STR("\t"), format_indent | format_no_empty_element_tags);
 
 	doc.first_child().append_child(node_pcdata);
 
+	CHECK_NODE(doc, STR("<node></node>"));
 	CHECK_NODE_EX(doc, STR("<node></node>\n"), STR("\t"), format_indent);
+	CHECK_NODE_EX(doc, STR("<node></node>\n"), STR("\t"), format_indent | format_no_empty_element_tags);
+}
+
+TEST(write_pcdata_basic)
+{
+	xml_document doc;
+	doc.append_child(STR("node")).append_child(node_pcdata).set_value(STR("text"));
+
+	CHECK_NODE(doc, STR("<node>text</node>"));
+	CHECK_NODE_EX(doc, STR("<node>text</node>\n"), STR("\t"), format_indent);
+	CHECK_NODE_EX(doc, STR("<node>text</node>"), STR("\t"), format_raw | format_no_empty_element_tags);
+}
+
+TEST(write_pcdata_empty_text)
+{
+	xml_document doc;
+	doc.append_child(STR("node")).text().set(STR(""));
+
+	CHECK_NODE(doc, STR("<node/>"));
+	CHECK_NODE_EX(doc, STR("<node />\n"), STR("\t"), format_indent);
+	CHECK_NODE_EX(doc, STR("<node></node>"), STR("\t"), format_raw | format_no_empty_element_tags);
 }
 
 TEST(write_pcdata_whitespace_fixedpoint)
@@ -687,7 +711,7 @@ TEST(write_flush_coverage)
 #ifndef PUGIXML_NO_EXCEPTIONS
 struct throwing_writer: xml_writer
 {
-	virtual void write(const void*, size_t) PUGIXML_OVERRIDE
+	void write(const void*, size_t) PUGIXML_OVERRIDE
 	{
 		throw std::runtime_error("write failed");
 	}

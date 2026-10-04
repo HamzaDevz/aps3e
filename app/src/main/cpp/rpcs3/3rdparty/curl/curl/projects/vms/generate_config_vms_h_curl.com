@@ -67,7 +67,7 @@ $if f$locate(",nossl,", args_lower) .lt. args_len then nossl = 1
 $if .not. nossl
 $then
 $!
-$!  ssl$* logicals means HP ssl is present
+$!  ssl$* logicals means HP SSL is present
 $!----------------------------------------
 $   if f$trnlnm("ssl$root") .nes. ""
 $   then
@@ -96,7 +96,7 @@ $       nohpssl = 1
 $       hpssl = 0
 $   endif
 $!
-$!  Finally check to see if hp ssl has been specifically included.
+$!  Finally check to see if HP SSL has been specifically included.
 $!----------------------------------------------------------------
 $   if f$locate(",nohpssl,", args_lower) .lt. args_len
 $   then
@@ -215,7 +215,7 @@ $write cvh ""
 $!
 $! We are now setting this on the GNV build, so also do this
 $! for compatibility.
-$write cvh "/* Location of default ca path */"
+$write cvh "/* Location of default CA path */"
 $write cvh "#define curl_ca_path ""gnv$curl_ca_path"""
 $!
 $! The config_h.com finds a bunch of default disable commands in
@@ -262,15 +262,9 @@ $write cvh "#ifdef CURL_DISABLE_LIBCURL_OPTION"
 $write cvh "#undef CURL_DISABLE_LIBCURL_OPTION"
 $write cvh "#endif"
 $write cvh "#ifndef __VAX"
-$write cvh "#ifdef CURL_DISABLE_NTLM"
-$write cvh "#undef CURL_DISABLE_NTLM"
-$write cvh "#endif"
 $write cvh "#else"
 $! NTLM needs long long or int64 support, missing from DECC C.
 $write cvh "#ifdef __DECC
-$write cvh "#ifndef CURL_DISABLE_NTLM"
-$write cvh "#define CURL_DISABLE_NTLM 1"
-$write cvh "#endif"
 $write cvh "#endif"
 $write cvh "#endif"
 $write cvh "#ifdef CURL_DISABLE_POP3"
@@ -315,9 +309,6 @@ $write cvh "#endif"
 $write cvh "#ifdef USE_GNUTLS"
 $write cvh "#undef USE_GNUTLS"
 $write cvh "#endif"
-$write cvh "#ifdef USE_LIBRTMP"
-$write cvh "#undef USE_LIBRTMP"
-$write cvh "#endif"
 $write cvh "#ifdef USE_MANUAL"
 $write cvh "#undef USE_MANUAL"
 $write cvh "#endif"
@@ -327,8 +318,8 @@ $write cvh "#endif"
 $write cvh "#ifdef USE_OPENLDAP"
 $write cvh "#undef USE_OPENLDAP"
 $write cvh "#endif"
-$write cvh "#ifdef USE_THREADS_POSIX"
-$write cvh "#undef USE_THREADS_POSIX"
+$write cvh "#ifdef USE_RESOLV_THREADED"
+$write cvh "#undef USE_RESOLV_THREADED"
 $write cvh "#endif"
 $write cvh "#ifdef USE_TLS_SRP"
 $write cvh "#undef USE_TLS_SRP"

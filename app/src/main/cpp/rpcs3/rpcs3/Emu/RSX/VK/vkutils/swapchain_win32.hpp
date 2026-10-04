@@ -1,6 +1,7 @@
 #pragma once
 
 #include "swapchain_core.h"
+#include "util/logs.hpp"
 
 namespace vk
 {
@@ -103,7 +104,7 @@ namespace vk
 		createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
 		createInfo.hinstance = hInstance;
 		createInfo.hwnd = window_handle;
-		CHECK_RESULT(vkCreateWin32SurfaceKHR(vk_instance, &createInfo, NULL, &result));
+		CHECK_RESULT(_vkCreateWin32SurfaceKHR(vk_instance, &createInfo, NULL, &result));
 		return result;
 	}
 #endif

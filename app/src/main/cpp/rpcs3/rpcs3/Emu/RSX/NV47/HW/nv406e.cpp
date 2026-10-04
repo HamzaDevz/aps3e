@@ -3,6 +3,7 @@
 #include "nv47_sync.hpp"
 
 #include "Emu/RSX/RSXThread.h"
+#include "Emu/system_config.h"
 
 #include "context_accessors.define.h"
 
@@ -29,6 +30,7 @@ namespace rsx
 			RSX(ctx)->m_graphics_state |= rsx::pipeline_state::fragment_program_needs_rehash;
 
 			const auto& sema = vm::_ref<RsxSemaphore>(addr);
+			const auto& atomic_sema = vm::_ref<atomic_t<RsxSemaphore>>(addr);
 
 			if (sema == arg)
 			{
@@ -79,7 +81,17 @@ namespace rsx
 					}
 				}
 
-				RSX(ctx)->cpu_wait({});
+				if (RSX(ctx)->external_interrupt_lock ||
+					(RSX(ctx)->state & (cpu_flag::dbg_global_pause + cpu_flag::exit)) == cpu_flag::dbg_global_pause)
+				{
+					RSX(ctx)->cpu_wait({});
+					continue;
+				}
+
+				RSX(ctx)->on_semaphore_acquire_wait();
+
+				// Wait until the value changes or until 100us pass.
+				utils::spin_on_cacheline_once(atomic_sema, sema, 100);
 			}
 
 			RSX(ctx)->fifo_wake_delay();

@@ -31,7 +31,7 @@ static CURLcode test_unit3200(const char *arg)
 #if !defined(CURL_DISABLE_COOKIES) || !defined(CURL_DISABLE_ALTSVC) || \
   !defined(CURL_DISABLE_HSTS) || !defined(CURL_DISABLE_NETRC)
 
-#if defined(CURL_GNUC_DIAG) || defined(__clang__)
+#ifdef CURL_HAVE_DIAG
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Woverlength-strings"
 #endif
@@ -45,7 +45,7 @@ static CURLcode test_unit3200(const char *arg)
 #define C1024 C256 C256 C256 C256
 #define C4096 C1024 C1024 C1024 C1024
 
-  static const char *filecontents[] = {
+  static const char * const filecontents[] = {
     /* Both should be read */
     "LINE1\n"
     "LINE2 NEWLINE\n",
@@ -70,7 +70,7 @@ static CURLcode test_unit3200(const char *arg)
     "LINE1\x1aTEST"
   };
 
-#if defined(CURL_GNUC_DIAG) || defined(__clang__)
+#ifdef CURL_HAVE_DIAG
 #pragma GCC diagnostic pop
 #endif
 
@@ -85,14 +85,14 @@ static CURLcode test_unit3200(const char *arg)
     curlx_dyn_init(&buf, len);
 
     fp = curlx_fopen(arg, "wb");
-    abort_unless(fp != NULL, "Cannot open testfile");
+    abort_unless(fp, "Cannot open testfile");
     fwrite(filecontents[i], 1, strlen(filecontents[i]), fp);
     curlx_fclose(fp);
 
     fp = curlx_fopen(arg, "rb");
-    abort_unless(fp != NULL, "Cannot open testfile");
+    abort_unless(fp, "Cannot open testfile");
 
-    curl_mfprintf(stderr, "Test %zd...", i);
+    curl_mfprintf(stderr, "Test %zu...", i);
     switch(i) {
     case 0:
       result = Curl_get_line(&buf, fp, &eof);

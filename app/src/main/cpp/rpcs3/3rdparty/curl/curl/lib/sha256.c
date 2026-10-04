@@ -32,7 +32,7 @@
 #ifdef USE_MBEDTLS
 #include <mbedtls/version.h>
 #if MBEDTLS_VERSION_NUMBER < 0x03020000
-#error "mbedTLS 3.2.0 or later required"
+#error "mbedTLS 3.2.0 or greater required"
 #endif
 #include <psa/crypto_config.h>
 #endif
@@ -40,10 +40,11 @@
 /* Please keep the SSL backend-specific #if branches in this order:
  *
  * 1. USE_OPENSSL
- * 2. USE_GNUTLS
- * 3. USE_MBEDTLS
- * 4. USE_COMMON_CRYPTO
+ * 2. USE_WOLFSSL
+ * 3. USE_GNUTLS
+ * 4. USE_MBEDTLS
  * 5. USE_WIN32_CRYPTO
+ * 6. USE_COMMON_CRYPTO
  *
  * This ensures that the same SSL branch gets activated throughout this source
  * file even if multiple backends are enabled at the same time.
@@ -60,12 +61,12 @@ typedef struct ossl_sha256_ctx my_sha256_ctx;
 static CURLcode my_sha256_init(void *in)
 {
   my_sha256_ctx *ctx = (my_sha256_ctx *)in;
-  ctx->openssl_ctx = EVP_MD_CTX_create();
+  ctx->openssl_ctx = EVP_MD_CTX_new();
   if(!ctx->openssl_ctx)
     return CURLE_OUT_OF_MEMORY;
 
   if(!EVP_DigestInit_ex(ctx->openssl_ctx, EVP_sha256(), NULL)) {
-    EVP_MD_CTX_destroy(ctx->openssl_ctx);
+    EVP_MD_CTX_free(ctx->openssl_ctx);
     return CURLE_FAILED_INIT;
   }
   return CURLE_OK;
@@ -83,11 +84,37 @@ static void my_sha256_final(unsigned char *digest, void *in)
 {
   my_sha256_ctx *ctx = (my_sha256_ctx *)in;
   EVP_DigestFinal_ex(ctx->openssl_ctx, digest, NULL);
-  EVP_MD_CTX_destroy(ctx->openssl_ctx);
+  EVP_MD_CTX_free(ctx->openssl_ctx);
+}
+
+#elif defined(USE_WOLFSSL)
+#include <wolfssl/options.h>
+#include <wolfssl/wolfcrypt/sha256.h>
+
+typedef struct wc_Sha256 my_sha256_ctx;
+
+static CURLcode my_sha256_init(void *in)
+{
+  if(wc_InitSha256(in))
+    return CURLE_FAILED_INIT;
+  return CURLE_OK;
+}
+
+static void my_sha256_update(void *in,
+                             const unsigned char *data,
+                             unsigned int length)
+{
+  (void)wc_Sha256Update(in, data, (word32)length);
+}
+
+static void my_sha256_final(unsigned char *digest, void *in)
+{
+  (void)wc_Sha256Final(in, digest);
 }
 
 #elif defined(USE_GNUTLS)
-#include <nettle/sha.h>
+#include <nettle/sha2.h>
+#include <nettle/version.h>
 
 typedef struct sha256_ctx my_sha256_ctx;
 
@@ -106,19 +133,24 @@ static void my_sha256_update(void *ctx,
 
 static void my_sha256_final(unsigned char *digest, void *ctx)
 {
+#if NETTLE_VERSION_MAJOR >= 4
+  sha256_digest(ctx, digest);
+#else
   sha256_digest(ctx, SHA256_DIGEST_SIZE, digest);
+#endif
 }
 
 #elif defined(USE_MBEDTLS) && \
-  defined(PSA_WANT_ALG_SHA_256) && PSA_WANT_ALG_SHA_256  /* mbedTLS 4+ */
+  defined(PSA_WANT_ALG_SHA_256) && PSA_WANT_ALG_SHA_256
 #include <psa/crypto.h>
 
 typedef psa_hash_operation_t my_sha256_ctx;
 
 static CURLcode my_sha256_init(void *ctx)
 {
-  memset(ctx, 0, sizeof(my_sha256_ctx));
-  if(psa_hash_setup(ctx, PSA_ALG_SHA_256) != PSA_SUCCESS)
+  psa_hash_operation_t *pctx = (psa_hash_operation_t *)ctx;
+  *pctx = psa_hash_operation_init();
+  if(psa_hash_setup(pctx, PSA_ALG_SHA_256) != PSA_SUCCESS)
     return CURLE_OUT_OF_MEMORY;
   return CURLE_OK;
 }
@@ -229,7 +261,7 @@ static void my_sha256_final(unsigned char *digest, void *in)
     (a)[0] = (unsigned char)((((unsigned long)(val)) >> 24) & 0xff); \
     (a)[1] = (unsigned char)((((unsigned long)(val)) >> 16) & 0xff); \
     (a)[2] = (unsigned char)((((unsigned long)(val)) >>  8) & 0xff); \
-    (a)[3] = (unsigned char) (((unsigned long)(val)) & 0xff);        \
+    (a)[3] = (unsigned char)(((unsigned long)(val)) & 0xff);         \
   } while(0)
 
 #define WPA_PUT_BE64(a, val)                            \
@@ -350,12 +382,11 @@ static CURLcode my_sha256_init(void *in)
   return CURLE_OK;
 }
 
-/*
-   Process a block of memory though the hash
+/* Process a block of memory though the hash
    @param md     The hash state
    @param in     The data to hash
    @param inlen  The length of the data (octets)
-*/
+ */
 static void my_sha256_update(void *ctx,
                              const unsigned char *in,
                              unsigned int len)
@@ -390,12 +421,11 @@ static void my_sha256_update(void *ctx,
   }
 }
 
-/*
-   Terminate the hash to get the digest
+/* Terminate the hash to get the digest
    @param md  The hash state
    @param out [out] The destination of the hash (32 bytes)
    @return 0 if successful
-*/
+ */
 static void my_sha256_final(unsigned char *out, void *ctx)
 {
   struct sha256_state *md = ctx;
@@ -452,14 +482,19 @@ static void my_sha256_final(unsigned char *out, void *ctx)
  * Returns CURLE_OK on success.
  */
 CURLcode Curl_sha256it(unsigned char *output, const unsigned char *input,
-                       const size_t len)
+                       size_t len)
 {
   CURLcode result;
   my_sha256_ctx ctx;
 
   result = my_sha256_init(&ctx);
   if(!result) {
-    my_sha256_update(&ctx, input, curlx_uztoui(len));
+    do {
+      unsigned int ilen = (unsigned int)CURLMIN(len, UINT_MAX);
+      my_sha256_update(&ctx, input, ilen);
+      len -= ilen;
+      input += ilen;
+    } while(len);
     my_sha256_final(output, &ctx);
   }
   return result;

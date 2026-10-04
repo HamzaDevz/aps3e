@@ -16,76 +16,83 @@ namespace vk
 		VK_BUFFER_CREATE_SPECIAL_FLAGS_RPCS3 = (VK_BUFFER_CREATE_ALLOW_NULL_RPCS3 | VK_BUFFER_CREATE_IGNORE_VMEM_PRESSURE_RPCS3)
 	};
 
-    struct buffer_view: public unique_resource
-    {
-        VkBufferView value;
-        VkBufferViewCreateInfo info = {};
-        VkBuffer full_buffer;
+	struct buffer_view : public unique_resource
+	{
+		VkBufferView value;
+		VkBufferViewCreateInfo info = {};
+		VkBuffer full_buffer;
 
-        buffer_view(VkDevice dev, VkBuffer buffer, VkFormat format, VkDeviceSize offset, VkDeviceSize size);
-        ~buffer_view();
+		buffer_view(VkDevice dev, VkBuffer buffer, VkFormat format, VkDeviceSize offset, VkDeviceSize size);
+		~buffer_view();
 
-        buffer_view(const buffer_view&) = delete;
-        buffer_view(buffer_view&&)      = delete;
+		buffer_view(const buffer_view&) = delete;
+		buffer_view(buffer_view&&)      = delete;
 
-        bool in_range(u32 address, u32 size, u32& offset) const;
+		bool in_range(u32 address, u32 size, u32& offset) const;
 
-    private:
-        VkDevice m_device;
-    };
-    struct buffer;
+	private:
+		VkDevice m_device;
+	};
 
-    struct sub_buffer: public unique_resource
-    {
+	struct buffer;
 
-        VkBuffer full_buffer;
+	// A raw VkBuffer bound to a sub-range of an existing allocation.
+	// Used on drivers where texel buffer views are too small (e.g. Mali maxTexelBufferElements = 64K):
+	// vertex attribute data is instead fetched through an SSBO.
+	struct sub_buffer : public unique_resource
+	{
+		VkBuffer full_buffer;
 
-        struct info_t {
-            u32 offset;
-            u32 size;
-        } info;
+		struct info_t
+		{
+			u32 offset;
+			u32 size;
+		} info;
 
-        VkBuffer value;
+		VkBuffer value;
 
-        sub_buffer(const buffer& buf, VkFormat format, VkDeviceSize offset, VkDeviceSize size);
-        ~sub_buffer();
+		sub_buffer(const buffer& buf, VkFormat format, VkDeviceSize offset, VkDeviceSize size);
+		~sub_buffer();
 
-        sub_buffer(const sub_buffer&) = delete;
-        sub_buffer(sub_buffer&&) = delete;
+		sub_buffer(const sub_buffer&) = delete;
+		sub_buffer(sub_buffer&&)      = delete;
 
-        bool in_range(u32 address, u32 size, u32& offset) const;
+		bool in_range(u32 address, u32 size, u32& offset) const;
 
-    private:
-        VkDevice m_device;
-    };
+	private:
+		VkDevice m_device;
+	};
 
-    struct buffer_upload: public unique_resource{
+	// Wrapper that can hold either a texel buffer_view or a sub_buffer (SSBO view)
+	struct buffer_upload : public unique_resource
+	{
+		~buffer_upload();
+		buffer_upload() = default;
+		buffer_upload(const buffer_upload&) = delete;
+		buffer_upload(buffer_upload&&) = delete;
 
-        ~buffer_upload();
-        buffer_upload()=default;
-        buffer_upload(const buffer_upload&)=delete;
-        buffer_upload(buffer_upload&&)=delete;
+		bool is(VkBuffer buffer) const;
+		bool in_range(u32 address, u32 size, u32& offset) const;
 
-        bool is(VkBuffer buffer) const;
-        bool in_range(u32 address, u32 size, u32& offset) const;
+		using buffer_info = std::variant<VkBufferView, VkBuffer>;
+		buffer_info get_buffer() const;
+		u64 get_resource_id() const;
 
-        using buffer_info=std::variant<VkBufferView,VkBuffer>;
-        buffer_info get_buffer() const;
-        u64 get_resource_id() const;
+		static std::unique_ptr<buffer_upload> create(const render_device& dev, const buffer& buf, VkFormat format, VkDeviceSize offset, VkDeviceSize size);
 
-        static std::unique_ptr<buffer_upload> create(const render_device& dev,const buffer& buf, VkFormat format, VkDeviceSize offset, VkDeviceSize size);
+		bool is_buffer_view;
 
-        bool  is_buffer_view;
-    private:
-        static std::unique_ptr<buffer_upload> create_with_buffer_view(VkDevice dev, VkBuffer buffer, VkFormat format, VkDeviceSize offset, VkDeviceSize size);
-        static std::unique_ptr<buffer_upload> create_with_sub_buffer(const buffer& buf, VkFormat format, VkDeviceSize offset, VkDeviceSize size);
+	private:
+		static std::unique_ptr<buffer_upload> create_with_buffer_view(VkDevice dev, VkBuffer buffer, VkFormat format, VkDeviceSize offset, VkDeviceSize size);
+		static std::unique_ptr<buffer_upload> create_with_sub_buffer(const buffer& buf, VkFormat format, VkDeviceSize offset, VkDeviceSize size);
 
-    public:
-        union {
-            buffer_view* view;
-            sub_buffer* sub;
-        } ptr;
-    };
+	public:
+		union
+		{
+			buffer_view* view;
+			sub_buffer* sub;
+		} ptr;
+	};
 
 	struct buffer : public unique_resource
 	{

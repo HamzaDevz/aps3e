@@ -3,8 +3,9 @@ name: Kernel Module Build
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '*' ]
 
 concurrency:
@@ -18,21 +19,25 @@ jobs:
       matrix:
         config: [
           'EXTRA_CPPFLAGS=-Werror --enable-option-checking=fatal --enable-linuxkm --enable-linuxkm-lkcapi-register=all --enable-all --enable-kyber=yes,original --enable-lms --enable-xmss --enable-dilithium --enable-experimental --enable-dual-alg-certs --disable-qt --disable-quic --with-sys-crypto-policy=no --disable-testcert --enable-all-asm --enable-crypttests --enable-linuxkm-benchmarks CFLAGS="-Wframe-larger-than=2048 -Wstack-usage=4096 -DBENCH_EMBEDDED -DBENCH_MIN_RUNTIME_SEC=0.01 -DBENCH_NTIMES=1 -DBENCH_AGREETIMES=1" --with-max-rsa-bits=16384',
-          'EXTRA_CPPFLAGS=-Werror --enable-option-checking=fatal --enable-linuxkm --enable-linuxkm-pie --enable-reproducible-build --enable-linuxkm-lkcapi-register=all --enable-all-crypto --enable-cryptonly --enable-kyber=yes,original --enable-lms --enable-xmss --enable-dilithium --enable-experimental --disable-qt --disable-quic --with-sys-crypto-policy=no --disable-opensslextra --disable-testcert --enable-intelasm --disable-sp-asm --enable-crypttests --enable-linuxkm-benchmarks CFLAGS="-DWOLFSSL_LINUXKM_VERBOSE_DEBUG -DDEBUG_LINUXKM_PIE_SUPPORT -Wframe-larger-than=2048 -Wstack-usage=4096 -DBENCH_EMBEDDED -DBENCH_MIN_RUNTIME_SEC=0.01 -DBENCH_NTIMES=1 -DBENCH_AGREETIMES=1" --with-max-rsa-bits=16384'
+          'EXTRA_CPPFLAGS=-Werror --enable-option-checking=fatal --enable-linuxkm --enable-linuxkm-pie --enable-reproducible-build --enable-linuxkm-lkcapi-register=all --enable-all-crypto --enable-cryptonly --enable-kyber=yes,original --enable-lms --enable-xmss --enable-dilithium --enable-experimental --disable-qt --disable-quic --with-sys-crypto-policy=no --disable-opensslextra --disable-testcert --enable-intelasm --disable-sp-asm --enable-crypttests --enable-linuxkm-benchmarks CFLAGS="-DWOLFSSL_LINUXKM_VERBOSE_DEBUG -DDEBUG_LINUXKM_PIE_SUPPORT -Wframe-larger-than=2048 -Wstack-usage=4096 -DBENCH_EMBEDDED -DBENCH_MIN_RUNTIME_SEC=0.01 -DBENCH_NTIMES=1 -DBENCH_AGREETIMES=1" --with-max-rsa-bits=16384',
+          'EXTRA_CPPFLAGS=-Werror --enable-option-checking=fatal --enable-linuxkm --enable-tls13 --enable-dtls --enable-dtls13'
         ]
     name: build module
-    if: github.repository_owner == 'wolfssl'
-    runs-on: ubuntu-latest
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         name: Checkout wolfSSL
+
+      - name: Install linux-headers
+        uses: ./.github/actions/install-apt-deps
+        with:
+          packages: linux-headers-$(uname -r)
+          ghcr-debs-tag: ubuntu-24.04-linuxkm
 
       - name: Prepare target kernel for module builds
         run: |
-          echo "updating linux-headers"
-          sudo apt-get update || $(exit 2)
-          sudo apt-get install linux-headers-$(uname -r) -y || $(exit 3)
           echo "preparing target kernel $(uname -r)"
           pushd "/lib/modules/$(uname -r)/build" || $(exit 4)
           if [ -f /proc/config.gz ]; then gzip -dc /proc/config.gz > /tmp/.config && sudo mv /tmp/.config . || $(exit 5); elif [ -f "/boot/config-$(uname -r)" ]; then sudo cp -p "/boot/config-$(uname -r)" .config || $(exit 6); fi
@@ -52,3 +57,15 @@ jobs:
           make -j 4 KERNEL_EXTRA_CFLAGS_REMOVE=-pg FORCE_NO_MODULE_SIG=1 || $(exit 11)
           ls -l linuxkm/libwolfssl.ko || $(exit 12)
           echo "Successful linuxkm build."
+
+      - name: Verify DTLS 1.3 symbols are exported (when WOLFSSL_DTLS13 is configured)
+        run: |
+          if grep -q '^#define WOLFSSL_DTLS13' wolfssl/options.h; then
+            echo "WOLFSSL_DTLS13 defined; checking GPL exports in libwolfssl.ko..."
+            objdump -t linuxkm/libwolfssl.ko \
+              | grep -qE '__ksymtab_wolfDTLSv1_3_(client|server)_method$' \
+              || { echo "::error::DTLS 1.3 entry points not exported from libwolfssl.ko"; exit 13; }
+            echo "DTLS 1.3 export check: PASS"
+          else
+            echo "WOLFSSL_DTLS13 not defined for this matrix entry; skipping symbol check."
+          fi

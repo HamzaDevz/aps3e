@@ -14,7 +14,9 @@
 #include <type_traits>
 
 namespace YAML {
-[[noreturn]] void throw_bad_subscript(const YAML::Mark& mark);
+[[noreturn]] extern void throw_bad_subscript(const YAML::Mark& mark);
+[[noreturn]] extern void throw_bad_insert();
+
 namespace detail {
 template <typename Key, typename Enable = void>
 struct get_idx {
@@ -200,8 +202,6 @@ inline bool node_data::remove(const Key& key, shared_memory_holder pMemory) {
 
   return false;
 }
-
-[[nodiscard]] void throw_bad_insert();
 
 // map
 template <typename Key, typename Value>

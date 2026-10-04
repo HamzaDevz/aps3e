@@ -22,14 +22,14 @@ To run the tests faster, pass the -j (parallelism) flag:
 
     make test TFLAGS="-j10"
 
-"make test" builds the test suite support code and invokes the 'runtests.pl'
+`make test` builds the test suite support code and invokes the `runtests.pl`
 perl script to run all the tests. The value of `TFLAGS` is passed directly
-to 'runtests.pl'.
+to `runtests.pl`.
 
 When you run tests via make, the flags `-a` and `-s` are passed, meaning to
 continue running tests even after one fails, and to emit short output.
 
-If you would like to not use those flags, you can run 'runtests.pl'
+If you would like to not use those flags, you can run `runtests.pl`
 directly. You must `chdir` into the tests directory, then you can run it
 like so:
 
@@ -37,10 +37,8 @@ like so:
 
 You must have run `make test` at least once first to build the support code.
 
-To see what flags are available for runtests.pl, and what output it emits,
-run:
-
-    man ./docs/runtests.1
+To see what flags are available for `runtests.pl`, and what output it emits,
+see `docs/runtests.md`.
 
 After a test fails, examine the tests/log directory for stdout, stderr, and
 output from the servers used in the test.
@@ -138,7 +136,7 @@ set to identify the IP address and port number of the DNS server to use.
   host information
 
 - curl built to use `getaddrinfo()` for resolving *and* is built with c-ares
-  1.26.0 or later, gets a special work-around. In such builds, when the
+  1.26.0 or later, gets a special workaround. In such builds, when the
   environment variable is set, curl instead invokes a getaddrinfo wrapper
   that emulates the function and acknowledges the DNS server environment
   variable. This way, the getaddrinfo-using code paths in curl are verified,
@@ -189,6 +187,9 @@ successive run. This tests the out of memory error handling code to ensure
 that memory leaks do not occur even in those situations. It can help to
 compile curl with `CPPFLAGS=-DMEMDEBUG_LOG_SYNC` when using this option, to
 ensure that the memory log file is properly written even if curl crashes.
+
+If a specific test takes a long time to run in memory test mode, you can
+disable it individually by adding `!torture` to its `<features>` section.
 
 ### Debug
 

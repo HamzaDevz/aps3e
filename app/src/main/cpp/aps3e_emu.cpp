@@ -212,9 +212,9 @@ namespace ae{
     }
 
     /** RPCS3 emulator has functions it desires to call from the GUI at times. Initialize them in here. */
-    EmuCallbacks create_emu_cb()
+    emu_callbacks create_emu_cb()
     {
-        EmuCallbacks callbacks{};
+        emu_callbacks callbacks{};
 
         callbacks.on_run    = [](bool /*start_playtime*/) {
             PRE("on_run");
@@ -353,7 +353,14 @@ namespace ae{
             //return QFileInfo(QString::fromUtf8(sv.data(), static_cast<int>(sv.size()))).canonicalFilePath().toStdString();
         };
 
-        callbacks.on_install_pkgs = [](const std::vector<std::string>& pkgs)
+        // Must be non-empty: rsx::overlays::font::get_glyph_files() calls this and
+        // an unset std::function aborts with bad_function_call in -fno-exceptions mode.
+        callbacks.get_font_dirs = []() -> std::vector<std::string>
+        {
+            return { "/system/fonts/" };
+        };
+
+        callbacks.on_install_pkgs = [](const std::vector<std::string>& pkgs, bool /*show_progress*/)
         {
             PRE("on_install_pkgs");
             bool result=true;
@@ -612,7 +619,7 @@ namespace ae{
             LOGW("prlimit64(RLIMIT_MEMLOCK): rlim_max 0x%x ,rlim_cur 0x%x",rlim.rlim_max,rlim.rlim_cur);
         }*/
 
-        EmuCallbacks callbacks=create_emu_cb();
+        emu_callbacks callbacks=create_emu_cb();
 
         callbacks.get_gs_frame = [=]() -> std::unique_ptr<GSFrameBase>
         {
@@ -620,7 +627,7 @@ namespace ae{
             return std::unique_ptr<android_gs_frame>(new android_gs_frame(window,window_width,window_height));
         };
 
-        Emu.SetCallbacks(std::move(callbacks));
+        g_emu_callbacks = std::move(callbacks);
         Emu.SetHasGui(true);
         Emu.SetSupportedRenderers({video_renderer::vulkan, video_renderer::null});
         //Emu.SetDefaultRenderer(video_renderer::vulkan);
@@ -834,8 +841,8 @@ namespace ae{
 
         std::deque<std::string> bootable_paths;
 
-        package_install_result result = package_reader::extract_data(readers, bootable_paths);
-        LOGW("install_pkg %d %s %s",result.error,result.version.expected.c_str(),result.version.found.c_str());
+        package_install_result result = package_reader::extract_data(readers, bootable_paths, false);
+        LOGW("install_pkg %d %s %s",result.error,result.version.expected.c_str(),result.version.installed.c_str());
         return result.error == package_install_result::error_type::no_error;
     }
 #endif
@@ -845,8 +852,8 @@ namespace ae{
 
         std::deque<std::string> bootable_paths;
 
-        package_install_result result = package_reader::extract_data(readers, bootable_paths);
-        LOGW("install_pkg %d %s %s",result.error,result.version.expected.c_str(),result.version.found.c_str());
+        package_install_result result = package_reader::extract_data(readers, bootable_paths, false);
+        LOGW("install_pkg %d %s %s",result.error,result.version.expected.c_str(),result.version.installed.c_str());
         return result.error == package_install_result::error_type::no_error;
 
     }
@@ -856,8 +863,8 @@ namespace ae{
 
         std::deque<std::string> bootable_paths;
 
-        package_install_result result = package_reader::extract_data(readers, bootable_paths);
-        LOGW("install_pkg %d %s %s",result.error,result.version.expected.c_str(),result.version.found.c_str());
+        package_install_result result = package_reader::extract_data(readers, bootable_paths, false);
+        LOGW("install_pkg %d %s %s",result.error,result.version.expected.c_str(),result.version.installed.c_str());
         return result.error == package_install_result::error_type::no_error;
         return true;
 

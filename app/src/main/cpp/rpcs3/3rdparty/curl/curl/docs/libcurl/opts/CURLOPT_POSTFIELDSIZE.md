@@ -51,7 +51,8 @@ int main(void)
 {
   CURL *curl = curl_easy_init();
   if(curl) {
-    const char *data = "data to send";
+    CURLcode result;
+    static const char *data = "data to send";
 
     curl_easy_setopt(curl, CURLOPT_URL, "https://example.com");
 
@@ -60,7 +61,8 @@ int main(void)
 
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data);
 
-    curl_easy_perform(curl);
+    result = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
   }
 }
 ~~~

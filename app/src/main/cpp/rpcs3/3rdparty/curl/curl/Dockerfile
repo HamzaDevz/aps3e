@@ -24,7 +24,7 @@
 #   $ ./scripts/maketgz 8.7.1
 
 # To update, get the latest digest e.g. from https://hub.docker.com/_/debian/tags
-FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 
 RUN apt-get update -qq && apt-get install -qq -y --no-install-recommends \
     build-essential make autoconf automake libtool git perl zip zlib1g-dev gawk && \
@@ -32,7 +32,7 @@ RUN apt-get update -qq && apt-get install -qq -y --no-install-recommends \
 
 ARG UID=1000 GID=1000
 
-RUN groupadd --gid $UID dev && \
+RUN groupadd --gid $GID dev && \
     useradd --uid $UID --gid dev --shell /bin/bash --create-home dev
 
 USER dev:dev

@@ -85,7 +85,7 @@ NULL. libcurl has an internal progress meter. That is rarely wanted by users.
 
 ~~~c
 struct progress {
-  char *private;
+  char *private_data;
   size_t size;
 };
 
@@ -96,7 +96,7 @@ static int progress_callback(void *clientp,
                              double ulnow)
 {
   struct progress *memory = clientp;
-  printf("private: %p\n", memory->private);
+  printf("private: %p\n", (void *)memory->private_data);
 
   /* use the values */
 
@@ -109,11 +109,13 @@ int main(void)
 
   CURL *curl = curl_easy_init();
   if(curl) {
+    CURLcode result;
     /* pass struct to callback */
     curl_easy_setopt(curl, CURLOPT_PROGRESSDATA, &data);
     curl_easy_setopt(curl, CURLOPT_PROGRESSFUNCTION, progress_callback);
 
-    curl_easy_perform(curl);
+    result = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
   }
 }
 ~~~

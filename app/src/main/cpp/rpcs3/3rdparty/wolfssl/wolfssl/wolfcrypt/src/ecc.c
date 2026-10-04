@@ -50,8 +50,6 @@ Possible ECC enable options:
  *                      SECP160K1 and SECP224K1. These do not work with scalars
  *                      that are the length of the order when the order is
  *                      longer than the prime. Use wc_ecc_fp_free to free cache.
- * USE_ECC_B_PARAM:     Enable ECC curve B param                default: off
- *                      (on for HAVE_COMP_KEY)
  * WOLFSSL_ECC_CURVE_STATIC:                                    default off (on for windows)
  *                      For the ECC curve parameters `ecc_set_type` use fixed
  *                      array for hex string
@@ -100,6 +98,65 @@ Possible ECC enable options:
  * WOLFSSL_CHECK_VER_FAULTS
  *                      Sanity check on verification steps in case of faults.
  *                                                              default: off
+ * ECC_TIMING_RESISTANT: Enables constant-time ECC operations   default: on
+ *                      to prevent timing side-channel attacks.
+ *                      Auto-enabled for FIPS and some embedded builds.
+ * WC_NO_CACHE_RESISTANT: Disables cache-resistant operations   default: off
+ *                      (conditional swaps) in ECC scalar multiply to
+ *                      reduce overhead. Not recommended for secure use.
+ * ALT_ECC_SIZE:        Uses alternate smaller fixed-size arrays default: off
+ *                      for ECC points instead of full mp_int arrays,
+ *                      reducing memory. Requires USE_FAST_MATH.
+ * WOLFSSL_ECC_NO_SMALL_STACK: Disables WOLFSSL_SMALL_STACK     default: off
+ *                      optimizations for ECC, using stack instead of heap.
+ * HAVE_ECC_CHECK_PUBKEY_ORDER: Validates ECC public key order  default: on
+ *                      during import. Auto-enabled unless
+ *                      NO_ECC_CHECK_PUBKEY_ORDER is defined.
+ * NO_ECC_CHECK_PUBKEY_ORDER: Disables public key order check   default: off
+ *                      during ECC key import. Not recommended.
+ * HAVE_ECC_MAKE_PUB:   Enables computing public key from       default: on
+ *                      private key via wc_ecc_make_pub.
+ * HAVE_ECC_VERIFY_HELPER: Enables ECC verify helper functions  default: on
+ *                      Auto-enabled unless using hardware accelerators.
+ * WOLFSSL_PUBLIC_ECC_ADD_DBL: Makes ecc_projective_add_point   default: off
+ *                      and ecc_projective_dbl_point public APIs.
+ * SQRTMOD_USE_MOD_EXP: Computes square root mod prime using    default: off
+ *                      modular exponentiation instead of Jacobi method
+ *                      for compressed key decompression.
+ *
+ * ECIES options:
+ * WOLFSSL_ECIES_OLD:   Uses original wolfSSL ECIES format      default: off
+ *                      (public key not in shared secret material).
+ * WOLFSSL_ECIES_ISO18033: Uses ISO 18033 ECIES standard        default: off
+ *                      (includes public key in shared secret).
+ * WOLFSSL_ECIES_GEN_IV: Generates random IV for ECIES          default: off
+ *                      encryption instead of deriving from KDF.
+ *
+ * Fixed Point Cache options (requires FP_ECC):
+ * FP_ENTRIES:          Number of FP cache entries               default: 15
+ * FP_LUT:              FP lookup table bit size (2-12). Larger  default: 8
+ *                      values use more memory but faster verify.
+ * FP_ECC_CONTROL:      Auto-selects cached FP ECC verify with  default: on
+ *                      SP when WOLFSSL_HAVE_SP_ECC is available.
+ *
+ * SP Math ECC options:
+ * WOLFSSL_HAVE_SP_ECC: Enables SP math optimizations for ECC   default: on
+ *                      Provides significant performance improvement.
+ * WOLFSSL_SP_NO_256:   Disables SP P-256 support               default: off
+ * WOLFSSL_SP_384:      Enables SP P-384 support                default: off
+ * WOLFSSL_SP_521:      Enables SP P-521 support                default: off
+ * WOLFSSL_SP_1024:     Enables SP 1024-bit support for SAKKE   default: off
+ * WOLFSSL_SP_SM2:      Enables SP SM2 curve support            default: off
+ *                      Auto-enabled with WOLFSSL_SM2.
+ *
+ * Hardware/Offload options:
+ * WOLFSSL_KCAPI_ECC:   Offload ECC to Linux Kernel Crypto API  default: off
+ * WC_ASYNC_ENABLE_ECC: Enables async ECC with crypto callbacks default: off
+ *                      Requires WOLFSSL_ASYNC_CRYPT.
+ * WC_ASYNC_ENABLE_ECC_KEYGEN: Enables async ECC key gen        default: off
+ * PLUTON_CRYPTO_ECC:   Uses ARM Pluton TEE for ECC operations  default: off
+ * WOLFSSL_CAAM_BLACK_KEY_SM: Uses NXP CAAM secure memory for   default: off
+ *                      encrypted black key storage.
  */
 
 /*
@@ -154,6 +211,7 @@ ECC Curve Sizes:
 
 #include <wolfssl/wolfcrypt/ecc.h>
 #include <wolfssl/wolfcrypt/asn.h>
+#include <wolfssl/wolfcrypt/hash.h>
 
 #ifdef WOLFSSL_HAVE_SP_ECC
 #include <wolfssl/wolfcrypt/sp.h>
@@ -162,10 +220,6 @@ ECC Curve Sizes:
 #ifdef HAVE_ECC_ENCRYPT
     #include <wolfssl/wolfcrypt/kdf.h>
     #include <wolfssl/wolfcrypt/aes.h>
-#endif
-
-#ifdef HAVE_X963_KDF
-    #include <wolfssl/wolfcrypt/hash.h>
 #endif
 
 #ifdef WOLF_CRYPTO_CB
@@ -221,24 +275,21 @@ ECC Curve Sizes:
     #include <wolfssl/wolfcrypt/hmac.h>
 #endif
 
-#if defined(WOLFSSL_USE_SAVE_VECTOR_REGISTERS) && !defined(WOLFSSL_SP_ASM)
-    /* force off unneeded vector register save/restore. */
-    #undef SAVE_VECTOR_REGISTERS
-    #define SAVE_VECTOR_REGISTERS(fail_clause) SAVE_NO_VECTOR_REGISTERS(fail_clause)
-    #undef RESTORE_VECTOR_REGISTERS
-    #define RESTORE_VECTOR_REGISTERS() RESTORE_NO_VECTOR_REGISTERS()
-#endif
-
 #if !defined(WOLFSSL_ATECC508A) && !defined(WOLFSSL_ATECC608A) && \
+    !defined(WOLFSSL_MICROCHIP_TA100) && \
     !defined(WOLFSSL_CRYPTOCELL) && !defined(WOLFSSL_SILABS_SE_ACCEL) && \
     !defined(WOLFSSL_KCAPI_ECC) && !defined(WOLFSSL_SE050) && \
-    !defined(WOLFSSL_XILINX_CRYPT_VERSAL) && !defined(WOLFSSL_STM32_PKA) && \
-    !defined(WOLFSSL_PSOC6_CRYPTO)
+    !defined(WOLFSSL_STM32_PKA) && !defined(WOLFSSL_PSOC6_CRYPTO) && \
+    !defined(WOLFSSL_XILINX_CRYPT_VERSAL)
     #undef  HAVE_ECC_VERIFY_HELPER
+    #define HAVE_ECC_VERIFY_HELPER
+#endif
+#if defined(WOLFSSL_SE050_NO_ECDSA_VERIFY) && defined(HAVE_ECC_VERIFY)
     #define HAVE_ECC_VERIFY_HELPER
 #endif
 
 #if !defined(WOLFSSL_ATECC508A) && !defined(WOLFSSL_ATECC608A) && \
+        !defined(WOLFSSL_MICROCHIP_TA100) && \
     !defined(WOLFSSL_CRYPTOCELL) && !defined(WOLFSSL_SILABS_SE_ACCEL) && \
     !defined(WOLFSSL_KCAPI_ECC) && !defined(NO_ECC_MAKE_PUB) && \
     !defined(WOLF_CRYPTO_CB_ONLY_ECC)
@@ -251,6 +302,7 @@ ECC Curve Sizes:
 #if (!defined(NO_ECC_CHECK_PUBKEY_ORDER) && \
      !defined(WOLF_CRYPTO_CB_ONLY_ECC) && \
      !defined(WOLFSSL_ATECC508A) && !defined(WOLFSSL_ATECC608A) && \
+     !defined(WOLFSSL_MICROCHIP_TA100) && \
      !defined(WOLFSSL_CRYPTOCELL) && !defined(WOLFSSL_SILABS_SE_ACCEL) && \
      !defined(WOLFSSL_SE050) && !defined(WOLFSSL_STM32_PKA)) || \
      defined(WOLFSSL_IMXRT1170_CAAM) || defined(WOLFSSL_QNX_CAAM)
@@ -1463,9 +1515,7 @@ typedef struct ecc_curve_spec {
 
     mp_int* prime;
     mp_int* Af;
-    #ifdef USE_ECC_B_PARAM
-        mp_int* Bf;
-    #endif
+    mp_int* Bf;
     mp_int* order;
     mp_int* Gx;
     mp_int* Gy;
@@ -1473,9 +1523,7 @@ typedef struct ecc_curve_spec {
 #ifdef ECC_CACHE_CURVE
     mp_int prime_lcl;
     mp_int Af_lcl;
-    #ifdef USE_ECC_B_PARAM
-        mp_int Bf_lcl;
-    #endif
+    mp_int Bf_lcl;
     mp_int order_lcl;
     mp_int Gx_lcl;
     mp_int Gy_lcl;
@@ -1495,19 +1543,12 @@ typedef struct ecc_curve_spec {
     #define ECC_CURVE_FIELD_NONE    0x00
     #define ECC_CURVE_FIELD_PRIME   0x01
     #define ECC_CURVE_FIELD_AF      0x02
-#ifdef USE_ECC_B_PARAM
     #define ECC_CURVE_FIELD_BF      0x04
-#endif
     #define ECC_CURVE_FIELD_ORDER   0x08
     #define ECC_CURVE_FIELD_GX      0x10
     #define ECC_CURVE_FIELD_GY      0x20
-#ifdef USE_ECC_B_PARAM
     #define ECC_CURVE_FIELD_ALL     0x3F
     #define ECC_CURVE_FIELD_COUNT   6
-#else
-    #define ECC_CURVE_FIELD_ALL     0x3B
-    #define ECC_CURVE_FIELD_COUNT   5
-#endif
 
 #if defined(WOLFSSL_XILINX_CRYPT_VERSAL)
 static const u32 xil_curve_type[ECC_CURVE_MAX] = {
@@ -1651,10 +1692,8 @@ static void wc_ecc_curve_cache_free_spec(ecc_curve_spec* curve)
         wc_ecc_curve_cache_free_spec_item(curve, curve->prime, ECC_CURVE_FIELD_PRIME);
     if (curve->load_mask & ECC_CURVE_FIELD_AF)
         wc_ecc_curve_cache_free_spec_item(curve, curve->Af, ECC_CURVE_FIELD_AF);
-#ifdef USE_ECC_B_PARAM
     if (curve->load_mask & ECC_CURVE_FIELD_BF)
         wc_ecc_curve_cache_free_spec_item(curve, curve->Bf, ECC_CURVE_FIELD_BF);
-#endif
     if (curve->load_mask & ECC_CURVE_FIELD_ORDER)
         wc_ecc_curve_cache_free_spec_item(curve, curve->order, ECC_CURVE_FIELD_ORDER);
     if (curve->load_mask & ECC_CURVE_FIELD_GX)
@@ -1788,9 +1827,7 @@ static int wc_ecc_curve_load(const ecc_set_type* dp, ecc_curve_spec** pCurve,
     #ifdef ECC_CACHE_CURVE
         curve->prime = &curve->prime_lcl;
         curve->Af = &curve->Af_lcl;
-        #ifdef USE_ECC_B_PARAM
-            curve->Bf = &curve->Bf_lcl;
-        #endif
+        curve->Bf = &curve->Bf_lcl;
         curve->order = &curve->order_lcl;
         curve->Gx = &curve->Gx_lcl;
         curve->Gy = &curve->Gy_lcl;
@@ -1809,11 +1846,9 @@ static int wc_ecc_curve_load(const ecc_set_type* dp, ecc_curve_spec** pCurve,
     if (load_items & ECC_CURVE_FIELD_AF)
         ret += wc_ecc_curve_cache_load_item(curve, dp->Af, &curve->Af,
             ECC_CURVE_FIELD_AF);
-#ifdef USE_ECC_B_PARAM
     if (load_items & ECC_CURVE_FIELD_BF)
         ret += wc_ecc_curve_cache_load_item(curve, dp->Bf, &curve->Bf,
             ECC_CURVE_FIELD_BF);
-#endif
     if (load_items & ECC_CURVE_FIELD_ORDER)
         ret += wc_ecc_curve_cache_load_item(curve, dp->order, &curve->order,
             ECC_CURVE_FIELD_ORDER);
@@ -1968,6 +2003,10 @@ static int _ecc_projective_add_point(ecc_point* P, ecc_point* Q, ecc_point* R,
 #endif
    mp_int  *x, *y, *z;
    int     err;
+
+   if (MP_BITS_OVER_MAX(mp_bitsused(modulus), MAX_ECC_BITS_USE)) {
+       return WC_KEY_SIZE_E;
+   }
 
    /* if Q == R then swap P and Q, so we don't require a local x,y,z */
    if (Q == R) {
@@ -2369,6 +2408,10 @@ static int _ecc_projective_dbl_point(ecc_point *P, ecc_point *R, mp_int* a,
    mp_int *x, *y, *z;
    int    err;
 
+   if (MP_BITS_OVER_MAX(mp_bitsused(modulus), MAX_ECC_BITS_USE)) {
+       return WC_KEY_SIZE_E;
+   }
+
 #ifdef WOLFSSL_SMALL_STACK
 #ifdef WOLFSSL_SMALL_STACK_CACHE
    if (R->key != NULL) {
@@ -2718,6 +2761,10 @@ int ecc_map_ex(ecc_point* P, mp_int* modulus, mp_digit mp, int ct)
         DECL_MP_INT_SIZE_DYN(rz, mp_bitsused(modulus), MAX_ECC_BITS_USE);
         #endif
         mp_int *x, *y, *z;
+
+        if (MP_BITS_OVER_MAX(mp_bitsused(modulus), MAX_ECC_BITS_USE)) {
+            return WC_KEY_SIZE_E;
+        }
 
         /* special case for point at infinity */
         if (mp_cmp_d(P->z, 0) == MP_EQ) {
@@ -3537,7 +3584,12 @@ static int ecc_point_to_mont(ecc_point* p, ecc_point* r, mp_int* modulus,
                              void* heap)
 {
    int err = MP_OKAY;
+
    DECL_MP_INT_SIZE_DYN(mu, mp_bitsused(modulus), MAX_ECC_BITS_USE);
+
+   if (MP_BITS_OVER_MAX(mp_bitsused(modulus), MAX_ECC_BITS_USE)) {
+       return WC_KEY_SIZE_E;
+   }
 
    (void)heap;
 
@@ -3693,7 +3745,7 @@ int wc_ecc_mulmod_ex(const mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
 #endif
    int           i, err;
 #ifdef WOLFSSL_SMALL_STACK_CACHE
-   ecc_key       *key = (ecc_key *)XMALLOC(sizeof(*key), heap, DYNAMIC_TYPE_ECC);
+   ecc_key       *key = NULL;
 #endif
    mp_digit      mp;
 
@@ -3713,6 +3765,7 @@ int wc_ecc_mulmod_ex(const mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
    }
 
 #ifdef WOLFSSL_SMALL_STACK_CACHE
+   key = (ecc_key *)XMALLOC(sizeof(*key), heap, DYNAMIC_TYPE_ECC);
    if (key == NULL) {
        err = MP_MEM;
        goto exit;
@@ -3775,8 +3828,7 @@ exit:
    if (key) {
        if (R)
            R->key = NULL;
-       if (err == MP_OKAY)
-           ecc_key_tmp_final(key, heap);
+       ecc_key_tmp_final(key, heap);
        XFREE(key, heap, DYNAMIC_TYPE_ECC);
    }
 #endif /* WOLFSSL_SMALL_STACK_CACHE */
@@ -3843,6 +3895,11 @@ static int ecc_check_order_minus_1(const mp_int* k, ecc_point* tG, ecc_point* R,
     int err;
     DECL_MP_INT_SIZE_DYN(t, mp_bitsused(order), MAX_ECC_BITS_USE);
 
+    if (MP_BITS_OVER_MAX(mp_bitsused(order), MAX_ECC_BITS_USE) ||
+            MP_BITS_OVER_MAX(mp_bitsused(modulus), MAX_ECC_BITS_USE)) {
+        return WC_KEY_SIZE_E;
+    }
+
     NEW_MP_INT_SIZE(t, mp_bitsused(modulus), NULL, DYNAMIC_TYPE_ECC);
 #ifdef MP_INT_SIZE_CHECK_NULL
     if (t == NULL) {
@@ -3860,7 +3917,7 @@ static int ecc_check_order_minus_1(const mp_int* k, ecc_point* tG, ecc_point* R,
          */
         err = mp_sub_d(order, 1, t);
         if (err == MP_OKAY) {
-            int kIsMinusOne = (mp_cmp((mp_int*)k, t) == MP_EQ);
+            int kIsMinusOne = (mp_cmp((const mp_int*)k, t) == MP_EQ);
             err = mp_cond_copy(tG->x, kIsMinusOne, R->x);
             if (err == MP_OKAY) {
                 err = mp_sub(modulus, tG->y, t);
@@ -4365,7 +4422,8 @@ static int wc_ecc_cmp_param(const char* curveParam,
     if (encType == WC_TYPE_HEX_STR) {
         if ((word32)XSTRLEN(curveParam) != paramSz)
             return -1;
-        return (XSTRNCMP(curveParam, (char*) param, paramSz) == 0) ? 0 : -1;
+        return (XSTRNCMP(curveParam, (const char*) param, paramSz) == 0)
+            ? 0 : -1;
     }
 
 #ifdef WOLFSSL_SMALL_STACK
@@ -4659,7 +4717,7 @@ int wc_ecc_shared_secret(ecc_key* private_key, ecc_key* public_key, byte* out,
    int err = 0;
 
 #if defined(WOLFSSL_CRYPTOCELL) && !defined(WOLFSSL_ATECC508A) && \
-   !defined(WOLFSSL_ATECC608A)
+   !defined(WOLFSSL_ATECC608A) && !defined(WOLFSSL_MICROCHIP_TA100)
    CRYS_ECDH_TempData_t tempBuff;
 #endif
 
@@ -4702,9 +4760,11 @@ int wc_ecc_shared_secret(ecc_key* private_key, ecc_key* public_key, byte* out,
       return ECC_BAD_ARG_E;
    }
 
-#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
+#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+    defined(WOLFSSL_MICROCHIP_TA100)
    /* For SECP256R1 use hardware */
-   if (private_key->dp->id == ECC_SECP256R1) {
+   if (private_key->dp->id == ECC_SECP256R1 &&
+       private_key->slot != ATECC_INVALID_SLOT) {
        err = atmel_ecc_create_pms(private_key->slot, public_key->pubkey_raw, out);
        *outlen = private_key->dp->size;
    }
@@ -4728,7 +4788,7 @@ int wc_ecc_shared_secret(ecc_key* private_key, ecc_key* public_key, byte* out,
    err = silabs_ecc_shared_secret(private_key, public_key, out, outlen);
 #elif defined(WOLFSSL_KCAPI_ECC)
    err = KcapiEcc_SharedSecret(private_key, public_key, out, outlen);
-#elif defined(WOLFSSL_SE050)
+#elif defined(WOLFSSL_SE050) && !defined(WOLFSSL_SE050_NO_ECDHE)
    err = se050_ecc_shared_secret(private_key, public_key, out, outlen);
 #else
    err = wc_ecc_shared_secret_ex(private_key, &public_key->pubkey, out, outlen);
@@ -4740,6 +4800,7 @@ int wc_ecc_shared_secret(ecc_key* private_key, ecc_key* public_key, byte* out,
 
 
 #if !defined(WOLFSSL_ATECC508A) && !defined(WOLFSSL_ATECC608A) && \
+    !defined(WOLFSSL_MICROCHIP_TA100) && \
     !defined(WOLFSSL_CRYPTOCELL) && !defined(WOLFSSL_KCAPI_ECC) && \
     !defined(WOLF_CRYPTO_CB_ONLY_ECC)
 
@@ -5103,8 +5164,6 @@ int wc_ecc_shared_secret_ex(ecc_key* private_key, ecc_point* point,
         return ECC_BAD_ARG_E;
     }
 
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
-
     switch (private_key->state) {
         case ECC_STATE_NONE:
         case ECC_STATE_SHARED_SEC_GEN:
@@ -5147,8 +5206,6 @@ int wc_ecc_shared_secret_ex(ecc_key* private_key, ecc_point* point,
             err = BAD_STATE_E;
     } /* switch */
 
-    RESTORE_VECTOR_REGISTERS();
-
     /* if async pending then return and skip done cleanup below */
     if (err == WC_NO_ERR_TRACE(WC_PENDING_E)) {
         return err;
@@ -5168,9 +5225,13 @@ int wc_ecc_shared_secret_ex(ecc_key* private_key, ecc_point* point,
                             byte* out, word32 *outlen)
 {
     int err;
-    ecc_key public_key;
+    WC_DECLARE_VAR(public_key, ecc_key, 1,
+                   private_key ? private_key->heap : NULL);
 
-    err = wc_ecc_init_ex(&public_key, private_key->heap, INVALID_DEVID);
+    WC_ALLOC_VAR_EX(public_key, ecc_key, 1, private_key->heap, DYNAMIC_TYPE_ECC,
+                    return MEMORY_E);
+
+    err = wc_ecc_init_ex(public_key, private_key->heap, INVALID_DEVID);
     if (err == MP_OKAY) {
         #if FIPS_VERSION3_GE(6,0,0)
         /* Since we are allowing a pass-through of ecc_make_key_ex_fips when
@@ -5191,30 +5252,30 @@ int wc_ecc_shared_secret_ex(ecc_key* private_key, ecc_point* point,
         }
         if (err == 0) { /* FIPS specific check */
         #endif
-        err = wc_ecc_set_curve(&public_key, private_key->dp->size,
+        err = wc_ecc_set_curve(public_key, private_key->dp->size,
                                private_key->dp->id);
         if (err == MP_OKAY) {
-            err = mp_copy(point->x, public_key.pubkey.x);
+            err = mp_copy(point->x, public_key->pubkey.x);
         }
         #if FIPS_VERSION3_GE(6,0,0)
         } /* end FIPS specific check */
         #endif
         if (err == MP_OKAY) {
-            err = mp_copy(point->y, public_key.pubkey.y);
+            err = mp_copy(point->y, public_key->pubkey.y);
         }
         if (err == MP_OKAY) {
-            err = wc_ecc_shared_secret(private_key, &public_key, out, outlen);
+            err = wc_ecc_shared_secret(private_key, public_key, out, outlen);
         }
 
-        wc_ecc_free(&public_key);
+        wc_ecc_free(public_key);
     }
 
+    WC_FREE_VAR_EX(public_key, private_key->heap, DYNAMIC_TYPE_ECC);
     return err;
 }
 #endif /* !WOLFSSL_ATECC508A && !WOLFSSL_CRYPTOCELL && !WOLFSSL_KCAPI_ECC */
 #endif /* HAVE_ECC_DHE */
 
-#ifdef USE_ECC_B_PARAM
 /* Checks if a point p lies on the curve with index curve_idx */
 int wc_ecc_point_is_on_curve(ecc_point *p, int curve_idx)
 {
@@ -5228,8 +5289,6 @@ int wc_ecc_point_is_on_curve(ecc_point *p, int curve_idx)
     if (wc_ecc_is_valid_idx(curve_idx) == 0) {
        return ECC_BAD_ARG_E;
     }
-
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
 
     ALLOC_CURVE_SPECS(3, err);
     if (err == MP_OKAY) {
@@ -5245,11 +5304,8 @@ int wc_ecc_point_is_on_curve(ecc_point *p, int curve_idx)
     wc_ecc_curve_free(curve);
     FREE_CURVE_SPECS();
 
-    RESTORE_VECTOR_REGISTERS();
-
     return err;
 }
-#endif /* USE_ECC_B_PARAM */
 
 #if !defined(WOLFSSL_ATECC508A) && !defined(WOLFSSL_ATECC608A) && \
     !defined(WOLFSSL_CRYPTOCELL) && \
@@ -5406,8 +5462,6 @@ static int ecc_make_pub_ex(ecc_key* key, ecc_curve_spec* curve,
         return BAD_FUNC_ARG;
     }
 
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
-
 #ifdef HAVE_ECC_MAKE_PUB
     /* if ecc_point passed in then use it as output for public key point */
     if (pubOut != NULL) {
@@ -5553,8 +5607,6 @@ static int ecc_make_pub_ex(ecc_key* key, ecc_curve_spec* curve,
         key->type = ECC_PRIVATEKEY;
     }
 
-    RESTORE_VECTOR_REGISTERS();
-
     return err;
 }
 
@@ -5610,12 +5662,27 @@ int wc_ecc_make_pub_ex(ecc_key* key, ecc_point* pubOut, WC_RNG* rng)
     return err;
 }
 
+#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+    defined(WOLFSSL_MICROCHIP_TA100)
+/* Resolve the curve id to pass to the Microchip backend. Keep the curve
+ * distinction by id (not size): SECP256R1, SECP256K1 and BRAINPOOLP256R1 are
+ * all 32 bytes and must NOT be collapsed onto SECP256R1. */
+static WC_INLINE int microchip_curve_id_for_key(const ecc_key* key)
+{
+    if (key != NULL && key->dp != NULL) {
+        return key->dp->id;
+    }
+    return ECC_CURVE_DEF;
+}
+#endif
+
 
 static int _ecc_make_key_ex(WC_RNG* rng, int keysize, ecc_key* key,
         int curve_id, int flags)
 {
     int err = 0;
 #if defined(WOLFSSL_CRYPTOCELL) && !defined(WOLFSSL_ATECC508A) && \
+    !defined(WOLFSSL_MICROCHIP_TA100) && \
     !defined(WOLFSSL_ATECC608A)
     const CRYS_ECPKI_Domain_t*  pDomain;
     CRYS_ECPKI_KG_TempData_t    tempBuff;
@@ -5696,11 +5763,24 @@ static int _ecc_make_key_ex(WC_RNG* rng, int keysize, ecc_key* key,
     }
 #endif /* WOLFSSL_ASYNC_CRYPT && WC_ASYNC_ENABLE_ECC */
 
-#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
-   if (key->dp->id == ECC_SECP256R1) {
+#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+    defined(WOLFSSL_MICROCHIP_TA100)
+#if defined(WOLFSSL_MICROCHIP_TA100)
+    /* TA100 supports multiple curves natively. */
+    if (key->dp->id == ECC_SECP256R1 ||
+        key->dp->id == ECC_SECP224R1 ||
+        key->dp->id == ECC_SECP384R1 ||
+        key->dp->id == ECC_SECP256K1 ||
+        key->dp->id == ECC_BRAINPOOLP256R1) {
+#else
+    /* ATECC508A/608A hardware only supports SECP256R1. */
+    if (key->dp->id == ECC_SECP256R1) {
+#endif
        key->type = ECC_PRIVATEKEY;
-       key->slot = atmel_ecc_alloc(ATMEL_SLOT_ECDHE);
-       err = atmel_ecc_create_key(key->slot, key->pubkey_raw);
+       if (key->slot == ATECC_INVALID_SLOT)
+           key->slot = atmel_ecc_alloc(ATMEL_SLOT_ECDHE);
+       err = atmel_ecc_create_key(key->slot, microchip_curve_id_for_key(key),
+           key->pubkey_raw);
 
        /* populate key->pubkey */
        if (err == 0
@@ -5709,7 +5789,7 @@ static int _ecc_make_key_ex(WC_RNG* rng, int keysize, ecc_key* key,
        #endif
        ) {
            err = mp_read_unsigned_bin(key->pubkey.x, key->pubkey_raw,
-                                      ECC_MAX_CRYPTO_HW_SIZE);
+                                      (word32)key->dp->size);
        }
        if (err == 0
        #ifdef ALT_ECC_SIZE
@@ -5717,14 +5797,14 @@ static int _ecc_make_key_ex(WC_RNG* rng, int keysize, ecc_key* key,
        #endif
        ) {
            err = mp_read_unsigned_bin(key->pubkey.y,
-                                      key->pubkey_raw + ECC_MAX_CRYPTO_HW_SIZE,
-                                      ECC_MAX_CRYPTO_HW_SIZE);
+                                      key->pubkey_raw + key->dp->size,
+                                      (word32)key->dp->size);
        }
    }
    else {
       err = NOT_COMPILED_IN;
    }
-#elif defined(WOLFSSL_SE050)
+#elif defined(WOLFSSL_SE050) && !defined(WOLFSSL_SE050_NO_ECDHE)
     err = se050_ecc_create_key(key, key->dp->id, key->dp->size);
     key->type = ECC_PRIVATEKEY;
 #elif defined(WOLFSSL_CRYPTOCELL)
@@ -6029,8 +6109,6 @@ int wc_ecc_make_key_ex2(WC_RNG* rng, int keysize, ecc_key* key, int curve_id,
 {
     int err;
 
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
-
     err = _ecc_make_key_ex(rng, keysize, key, curve_id, flags);
 
 #if (FIPS_VERSION_GE(5,0) || defined(WOLFSSL_VALIDATE_ECC_KEYGEN)) && \
@@ -6046,9 +6124,13 @@ int wc_ecc_make_key_ex2(WC_RNG* rng, int keysize, ecc_key* key, int curve_id,
         ) {
         err = _ecc_pairwise_consistency_test(key, rng);
     }
+    /* FIPS 140-3 IG 10.3.A (TE10.35.02): a key pair that fails post-
+     * generation validation or PCT must be rendered unusable so a caller
+     * that ignores the return value cannot use it. */
+    if (err != MP_OKAY) {
+        wc_ecc_free(key);
+    }
 #endif
-
-    RESTORE_VECTOR_REGISTERS();
 
     return err;
 }
@@ -6190,8 +6272,28 @@ int wc_ecc_init_ex(ecc_key* key, void* heap, int devId)
     (void)devId;
 #endif
 
-#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
+#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+    defined(WOLFSSL_MICROCHIP_TA100)
     key->slot = ATECC_INVALID_SLOT;
+#ifdef WOLFSSL_MICROCHIP_TA100
+    /* TA100 needs pubkey initialized to populate after genkey. With
+     * ALT_ECC_SIZE the x/y/z pointers must first be aimed at the inline
+     * xyz[] storage; mp_init_multi otherwise dereferences NULL. */
+#ifdef ALT_ECC_SIZE
+    key->pubkey.x = (mp_int*)&key->pubkey.xyz[0];
+    key->pubkey.y = (mp_int*)&key->pubkey.xyz[1];
+    key->pubkey.z = (mp_int*)&key->pubkey.xyz[2];
+    alt_fp_init(key->pubkey.x);
+    alt_fp_init(key->pubkey.y);
+    alt_fp_init(key->pubkey.z);
+#else
+    ret = mp_init_multi(key->pubkey.x, key->pubkey.y, key->pubkey.z,
+                        NULL, NULL, NULL);
+    if (ret != MP_OKAY) {
+        return MEMORY_E;
+    }
+#endif
+#endif
 #else
 #if defined(WOLFSSL_KCAPI_ECC)
     key->handle = NULL;
@@ -6386,6 +6488,7 @@ static int wc_ecc_get_curve_order_bit_count(const ecc_set_type* dp)
 #ifdef HAVE_ECC_SIGN
 
 #if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) ||  \
+    defined(WOLFSSL_MICROCHIP_TA100) || \
     defined(PLUTON_CRYPTO_ECC) || defined(WOLFSSL_CRYPTOCELL) || \
     defined(WOLFSSL_SILABS_SE_ACCEL) || defined(WOLFSSL_KCAPI_ECC) || \
     defined(WOLFSSL_SE050) || defined(WOLFSSL_XILINX_CRYPT_VERSAL)
@@ -6399,7 +6502,7 @@ static int wc_ecc_sign_hash_hw(const byte* in, word32 inlen,
 #endif
     {
     #if defined(WOLFSSL_CRYPTOCELL) && !defined(WOLFSSL_ATECC508A) && \
-        !defined(WOLFSSL_ATECC608A)
+        !defined(WOLFSSL_ATECC608A) && !defined(WOLFSSL_MICROCHIP_TA100)
         CRYS_ECDSA_SignUserContext_t sigCtxTemp;
         word32 raw_sig_size = *outlen;
         word32 msgLenInBytes = inlen;
@@ -6430,9 +6533,25 @@ static int wc_ecc_sign_hash_hw(const byte* in, word32 inlen,
         }
     #endif
 
-    #if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
+    #if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+         defined(WOLFSSL_MICROCHIP_TA100)
+#if defined(WOLFSSL_MICROCHIP_TA100)
+        if (microchip_curve_id_for_key(key) == ECC_SECP256R1) {
+            (void)inlen;
+            /* Sign: Result is 32-bytes of R then 32-bytes of S */
+            err = atmel_ecc_sign(key->slot, in, out);
+        }
+        else {
+            /* Sign: Result is raw R||S */
+            err = atmel_ecc_sign_ex(key->slot, microchip_curve_id_for_key(key),
+                in, inlen, out);
+        }
+#else
+        (void)inlen;
         /* Sign: Result is 32-bytes of R then 32-bytes of S */
         err = atmel_ecc_sign(key->slot, in, out);
+#endif
+
         if (err != 0) {
            return err;
         }
@@ -6715,10 +6834,16 @@ int wc_ecc_sign_hash(const byte* in, word32 inlen, byte* out, word32 *outlen,
     word32 keySz;
 #endif
 
+    if (MP_BITS_OVER_MAX(ECC_KEY_MAX_BITS(key), MAX_ECC_BITS_USE)) {
+        return WC_KEY_SIZE_E;
+    }
+
     if (in == NULL || out == NULL || outlen == NULL || key == NULL) {
         return ECC_BAD_ARG_E;
     }
-    if (inlen > WC_MAX_DIGEST_SIZE) {
+    if ((inlen > WC_MAX_DIGEST_SIZE) ||
+        (inlen < WC_MIN_DIGEST_SIZE))
+    {
         return BAD_LENGTH_E;
     }
 
@@ -6780,6 +6905,7 @@ int wc_ecc_sign_hash(const byte* in, word32 inlen, byte* out, word32 *outlen,
 
 /* hardware crypto */
 #if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+    defined(WOLFSSL_MICROCHIP_TA100) || \
     defined(PLUTON_CRYPTO_ECC) || defined(WOLFSSL_CRYPTOCELL) || \
     defined(WOLFSSL_SILABS_SE_ACCEL) || defined(WOLFSSL_KCAPI_ECC) || \
     defined(WOLFSSL_SE050) || defined(WOLFSSL_XILINX_CRYPT_VERSAL)
@@ -6901,6 +7027,7 @@ int wc_ecc_sign_hash_ex(const byte* in, word32 inlen, WC_RNG* rng,
     return stm32_ecc_sign_hash_ex(in, inlen, rng, key, r, s);
 }
 #elif !defined(WOLFSSL_ATECC508A) && !defined(WOLFSSL_ATECC608A) && \
+      !defined(WOLFSSL_MICROCHIP_TA100) && \
       !defined(WOLFSSL_CRYPTOCELL) && !defined(WOLFSSL_KCAPI_ECC)
 #ifndef WOLFSSL_SP_MATH
 static int ecc_sign_hash_sw(ecc_key* key, ecc_key* pubkey, WC_RNG* rng,
@@ -6909,7 +7036,12 @@ static int ecc_sign_hash_sw(ecc_key* key, ecc_key* pubkey, WC_RNG* rng,
 {
     int err = MP_OKAY;
     int loop_check = 0;
+
     DECL_MP_INT_SIZE_DYN(b, ECC_KEY_MAX_BITS_NONULLCHECK(key), MAX_ECC_BITS_USE);
+
+    if (MP_BITS_OVER_MAX(ECC_KEY_MAX_BITS_NONULLCHECK(key), MAX_ECC_BITS_USE)) {
+        return WC_KEY_SIZE_E;
+    }
 
     NEW_MP_INT_SIZE(b, ECC_KEY_MAX_BITS_NONULLCHECK(key), key->heap, DYNAMIC_TYPE_ECC);
 #ifdef MP_INT_SIZE_CHECK_NULL
@@ -7070,6 +7202,11 @@ static int ecc_sign_hash_sw(ecc_key* key, ecc_key* pubkey, WC_RNG* rng,
          mp_clear(pubkey->pubkey.z);
      #endif
          mp_forcezero(pubkey->k);
+
+         err = WC_CHECK_FOR_INTR_SIGNALS();
+         if (err != 0)
+             break;
+         WC_RELAX_LONG_LOOP();
     }
     mp_forcezero(b);
     FREE_MP_INT_SIZE(b, key->heap, DYNAMIC_TYPE_ECC);
@@ -7119,10 +7256,8 @@ static int ecc_sign_hash_sp(const byte* in, word32 inlen, WC_RNG* rng,
         #if !defined(WC_ECC_NONBLOCK) || (defined(WC_ECC_NONBLOCK) && !defined(WC_ECC_NONBLOCK_ONLY))
             {
                 int ret;
-                SAVE_VECTOR_REGISTERS(return _svr_ret;);
                 ret = sp_ecc_sign_256(in, inlen, rng, ecc_get_k(key), r, s,
                                       sign_k, key->heap);
-                RESTORE_VECTOR_REGISTERS();
                 return ret;
             }
         #endif
@@ -7131,10 +7266,8 @@ static int ecc_sign_hash_sp(const byte* in, word32 inlen, WC_RNG* rng,
     #if defined(WOLFSSL_SM2) && defined(WOLFSSL_SP_SM2)
         if (ecc_sets[key->idx].id == ECC_SM2P256V1) {
             int ret;
-            SAVE_VECTOR_REGISTERS(return _svr_ret;);
             ret = sp_ecc_sign_sm2_256(in, inlen, rng, ecc_get_k(key), r, s,
                                       sign_k, key->heap);
-            RESTORE_VECTOR_REGISTERS();
             return ret;
         }
     #endif
@@ -7159,10 +7292,8 @@ static int ecc_sign_hash_sp(const byte* in, word32 inlen, WC_RNG* rng,
         #if !defined(WC_ECC_NONBLOCK) || (defined(WC_ECC_NONBLOCK) && !defined(WC_ECC_NONBLOCK_ONLY))
             {
                 int ret;
-                SAVE_VECTOR_REGISTERS(return _svr_ret;);
                 ret = sp_ecc_sign_384(in, inlen, rng, ecc_get_k(key), r, s,
                                       sign_k, key->heap);
-                RESTORE_VECTOR_REGISTERS();
                 return ret;
             }
         #endif
@@ -7189,10 +7320,8 @@ static int ecc_sign_hash_sp(const byte* in, word32 inlen, WC_RNG* rng,
         #if !defined(WC_ECC_NONBLOCK) || (defined(WC_ECC_NONBLOCK) && !defined(WC_ECC_NONBLOCK_ONLY))
             {
                 int ret;
-                SAVE_VECTOR_REGISTERS(return _svr_ret;);
                 ret = sp_ecc_sign_521(in, inlen, rng, ecc_get_k(key), r, s,
                                       sign_k, key->heap);
-                RESTORE_VECTOR_REGISTERS();
                 return ret;
             }
         #endif
@@ -7219,6 +7348,10 @@ int wc_ecc_sign_hash_ex(const byte* in, word32 inlen, WC_RNG* rng,
                      ecc_key* key, mp_int *r, mp_int *s)
 {
    int    err = 0;
+#ifndef WC_ALLOW_ECC_ZERO_HASH
+   byte hashIsZero = 0;
+   word32 zIdx;
+#endif
 #if !defined(WOLFSSL_SP_MATH)
    mp_int* e;
 #if !defined(WOLFSSL_ASYNC_CRYPT) || !defined(HAVE_CAVIUM_V)
@@ -7234,11 +7367,27 @@ int wc_ecc_sign_hash_ex(const byte* in, word32 inlen, WC_RNG* rng,
 #else
    DECLARE_CURVE_SPECS(1);
 #endif
+   if (MP_BITS_OVER_MAX(ECC_KEY_MAX_BITS(key), MAX_ECC_BITS_USE)) {
+       return WC_KEY_SIZE_E;
+   }
 #endif /* !WOLFSSL_SP_MATH */
 
    if (in == NULL || r == NULL || s == NULL || key == NULL || rng == NULL) {
        return ECC_BAD_ARG_E;
    }
+   if ((inlen > WC_MAX_DIGEST_SIZE) ||
+       (inlen < WC_MIN_DIGEST_SIZE))
+   {
+       return BAD_LENGTH_E;
+   }
+
+#ifndef WC_ALLOW_ECC_ZERO_HASH
+   /* reject all 0's hash */
+   for (zIdx = 0; zIdx < inlen; zIdx++)
+       hashIsZero |= in[zIdx];
+   if (hashIsZero == 0)
+       return ECC_BAD_ARG_E;
+#endif
 
    /* is this a private key? */
    if (key->type != ECC_PRIVATEKEY && key->type != ECC_PRIVATEKEY_ONLY) {
@@ -7482,31 +7631,35 @@ static int _HMAC_K(byte* K, word32 KSz, byte* V, word32 VSz,
         const byte* h1, word32 h1Sz, byte* x, word32 xSz, byte* oct,
         byte* out, enum wc_HashType hashType, void* heap)
 {
-    Hmac hmac;
+    WC_DECLARE_VAR(hmac, Hmac, 1, heap);
     int  ret, init;
 
-    ret = init = wc_HmacInit(&hmac, heap, INVALID_DEVID);
+    WC_ALLOC_VAR_EX(hmac, Hmac, 1, heap, DYNAMIC_TYPE_HMAC,
+                    return MEMORY_E);
+
+    ret = init = wc_HmacInit(hmac, heap, INVALID_DEVID);
     if (ret == 0)
-        ret = wc_HmacSetKey(&hmac, (int)hashType, K, KSz);
+        ret = wc_HmacSetKey(hmac, (int)hashType, K, KSz);
 
     if (ret == 0)
-        ret = wc_HmacUpdate(&hmac, V, VSz);
+        ret = wc_HmacUpdate(hmac, V, VSz);
 
     if (ret == 0 && oct != NULL)
-        ret = wc_HmacUpdate(&hmac, oct, 1);
+        ret = wc_HmacUpdate(hmac, oct, 1);
 
     if (ret == 0)
-        ret = wc_HmacUpdate(&hmac, x, xSz);
+        ret = wc_HmacUpdate(hmac, x, xSz);
 
     if (ret == 0)
-        ret = wc_HmacUpdate(&hmac, h1, h1Sz);
+        ret = wc_HmacUpdate(hmac, h1, h1Sz);
 
     if (ret == 0)
-        ret = wc_HmacFinal(&hmac, out);
+        ret = wc_HmacFinal(hmac, out);
 
     if (init == 0)
-        wc_HmacFree(&hmac);
+        wc_HmacFree(hmac);
 
+    WC_FREE_VAR_EX(hmac, heap, DYNAMIC_TYPE_HMAC);
     return ret;
 }
 
@@ -7621,6 +7774,11 @@ int wc_ecc_gen_deterministic_k(const byte* hash, word32 hashSz,
 
     /* 3.2 c. Set K = 0x00 0x00 ... */
     XMEMSET(K, 0x00, KSz);
+
+#ifdef WOLFSSL_CHECK_MEM_ZERO
+    wc_MemZero_Add("wc_ecc_gen_deterministic_k K", K, KSz);
+    wc_MemZero_Add("wc_ecc_gen_deterministic_k V", V, VSz);
+#endif
 
     if (ret == 0) {
         ret = mp_init(z1); /* always init z1 and free z1 */
@@ -7764,6 +7922,8 @@ int wc_ecc_gen_deterministic_k(const byte* hash, word32 hashSz,
     }
 
     ForceZero(x, MAX_ECC_BYTES);
+    ForceZero(K, WC_MAX_DIGEST_SIZE);
+    ForceZero(V, WC_MAX_DIGEST_SIZE);
 #ifdef WOLFSSL_SMALL_STACK
     XFREE(z1, heap, DYNAMIC_TYPE_ECC_BUFFER);
     XFREE(x, heap, DYNAMIC_TYPE_PRIVATE_KEY);
@@ -7772,6 +7932,8 @@ int wc_ecc_gen_deterministic_k(const byte* hash, word32 hashSz,
     XFREE(h1, heap, DYNAMIC_TYPE_DIGEST);
 #elif defined(WOLFSSL_CHECK_MEM_ZERO)
     wc_MemZero_Check(x, MAX_ECC_BYTES);
+    wc_MemZero_Check(K, WC_MAX_DIGEST_SIZE);
+    wc_MemZero_Check(V, WC_MAX_DIGEST_SIZE);
 #endif
 
     return ret;
@@ -7856,21 +8018,21 @@ int wc_ecc_sign_set_k(const byte* k, word32 klen, ecc_key* key)
 #endif /* !HAVE_ECC_SIGN */
 
 #ifdef WOLFSSL_CUSTOM_CURVES
-void wc_ecc_free_curve(const ecc_set_type* curve, void* heap)
+void wc_ecc_free_curve(ecc_set_type* curve, void* heap)
 {
 #ifndef WOLFSSL_ECC_CURVE_STATIC
     if (curve->prime != NULL)
-        XFREE((void*)curve->prime, heap, DYNAMIC_TYPE_ECC_BUFFER);
+        XFREE((void*)(wc_ptr_t)curve->prime, heap, DYNAMIC_TYPE_ECC_BUFFER);
     if (curve->Af != NULL)
-        XFREE((void*)curve->Af, heap, DYNAMIC_TYPE_ECC_BUFFER);
+        XFREE((void*)(wc_ptr_t)curve->Af, heap, DYNAMIC_TYPE_ECC_BUFFER);
     if (curve->Bf != NULL)
-        XFREE((void*)curve->Bf, heap, DYNAMIC_TYPE_ECC_BUFFER);
+        XFREE((void*)(wc_ptr_t)curve->Bf, heap, DYNAMIC_TYPE_ECC_BUFFER);
     if (curve->order != NULL)
-        XFREE((void*)curve->order, heap, DYNAMIC_TYPE_ECC_BUFFER);
+        XFREE((void*)(wc_ptr_t)curve->order, heap, DYNAMIC_TYPE_ECC_BUFFER);
     if (curve->Gx != NULL)
-        XFREE((void*)curve->Gx, heap, DYNAMIC_TYPE_ECC_BUFFER);
+        XFREE((void*)(wc_ptr_t)curve->Gx, heap, DYNAMIC_TYPE_ECC_BUFFER);
     if (curve->Gy != NULL)
-        XFREE((void*)curve->Gy, heap, DYNAMIC_TYPE_ECC_BUFFER);
+        XFREE((void*)(wc_ptr_t)curve->Gy, heap, DYNAMIC_TYPE_ECC_BUFFER);
 #endif
 
     XFREE((void*)curve, heap, DYNAMIC_TYPE_ECC_BUFFER);
@@ -7886,23 +8048,19 @@ void wc_ecc_free_curve(const ecc_set_type* curve, void* heap)
 WOLFSSL_ABI
 int wc_ecc_free(ecc_key* key)
 {
-#if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_FREE)
-    int ret = 0;
-#endif
-
     if (key == NULL) {
         return 0;
     }
 
 #if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_FREE)
     if (key->devId != INVALID_DEVID) {
-        ret = wc_CryptoCb_Free(key->devId, WC_ALGO_TYPE_PK,
+        /* Best-effort HSM resource release; errors are intentionally discarded
+         * so that software cleanup always runs and wc_ecc_free() retains its
+         * ABI guarantee of returning 0 on success. */
+        (void)wc_CryptoCb_Free(key->devId, WC_ALGO_TYPE_PK,
                          WC_PK_TYPE_EC_KEYGEN, 0, key);
-        if (ret != WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE))
-            return ret;
-        /* fall-through to software cleanup */
+        /* always continue to software cleanup */
     }
-    (void)ret;
 #endif
 
 #if defined(WOLFSSL_ECDSA_SET_K) || defined(WOLFSSL_ECDSA_SET_K_ONE_LOOP) || \
@@ -7916,6 +8074,7 @@ int wc_ecc_free(ecc_key* key)
         mp_free(key->sign_k);
 #ifndef WOLFSSL_NO_MALLOC
         XFREE(key->sign_k, key->heap, DYNAMIC_TYPE_ECC);
+        key->sign_k = NULL;
 #endif
     }
 #endif
@@ -7942,7 +8101,8 @@ int wc_ecc_free(ecc_key* key)
     se050_ecc_free_key(key);
 #endif
 
-#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
+#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+    defined(WOLFSSL_MICROCHIP_TA100)
     atmel_ecc_free(key->slot);
     key->slot = ATECC_INVALID_SLOT;
 #endif /* WOLFSSL_ATECC508A */
@@ -7981,8 +8141,10 @@ int wc_ecc_free(ecc_key* key)
 #endif
 
 #ifdef WOLFSSL_CUSTOM_CURVES
-    if (key->deallocSet && key->dp != NULL)
-        wc_ecc_free_curve(key->dp, key->heap);
+    if (key->deallocSet && key->dp != NULL) {
+        wc_ecc_free_curve((ecc_set_type *)(wc_ptr_t)key->dp, key->heap);
+        key->dp = NULL;
+    }
 #endif
 
 #ifdef WOLFSSL_CHECK_MEM_ZERO
@@ -7996,7 +8158,6 @@ int wc_ecc_free(ecc_key* key)
     !defined(WOLFSSL_CRYPTOCELL) && !defined(WOLFSSL_SP_MATH) && \
     (!defined(WOLF_CRYPTO_CB_ONLY_ECC) || defined(WOLFSSL_QNX_CAAM) || \
       defined(WOLFSSL_IMXRT1170_CAAM))
-
 /* Handles add failure cases:
  *
  * Before add:
@@ -8117,7 +8278,8 @@ int ecc_projective_dbl_point_safe(ecc_point *P, ecc_point *R, mp_int* a,
         */
 
 #if !defined(WOLFSSL_SP_MATH) && !defined(WOLFSSL_ATECC508A) && \
-    !defined(WOLFSSL_ATECC608A) && !defined(WOLFSSL_CRYPTOCELL) && \
+    !defined(WOLFSSL_ATECC608A) && !defined(WOLFSSL_MICROCHIP_TA100) && \
+    !defined(WOLFSSL_CRYPTOCELL) && \
     !defined(WOLFSSL_KCAPI_ECC) && !defined(WOLF_CRYPTO_CB_ONLY_ECC)
 #ifdef ECC_SHAMIR
 
@@ -8125,7 +8287,12 @@ static int ecc_mont_norm_points(ecc_point* A, ecc_point* Am, ecc_point* B,
     ecc_point* Bm, mp_int* modulus, void* heap)
 {
     int err = MP_OKAY;
+
     DECL_MP_INT_SIZE_DYN(mu, mp_bitsused(modulus), MAX_ECC_BITS_USE);
+
+    if (MP_BITS_OVER_MAX(mp_bitsused(modulus), MAX_ECC_BITS_USE)) {
+        return WC_KEY_SIZE_E;
+    }
 
     (void)heap;
 
@@ -8513,10 +8680,17 @@ int wc_ecc_verify_hash(const byte* sig, word32 siglen, const byte* hash,
     word32 keySz;
 #endif
 
+    if (MP_BITS_OVER_MAX(ECC_KEY_MAX_BITS(key), MAX_ECC_BITS_USE)) {
+        return WC_KEY_SIZE_E;
+    }
+
     if (sig == NULL || hash == NULL || res == NULL || key == NULL) {
         return ECC_BAD_ARG_E;
     }
-    if (hashlen > WC_MAX_DIGEST_SIZE) {
+
+    /* Check hash length */
+    if ((hashlen > WC_MAX_DIGEST_SIZE) ||
+        (hashlen < WC_MIN_DIGEST_SIZE)) {
         return BAD_LENGTH_E;
     }
 
@@ -8710,7 +8884,7 @@ static int wc_ecc_check_r_s_range(ecc_key* key, mp_int* r, mp_int* s)
 }
 #endif /* !WOLFSSL_STM32_PKA && !WOLFSSL_PSOC6_CRYPTO */
 
-#ifdef HAVE_ECC_VERIFY_HELPER
+#if defined(HAVE_ECC_VERIFY_HELPER) && !defined(WOLFSSL_MICROCHIP)
 static int ecc_verify_hash_sp(mp_int *r, mp_int *s, const byte* hash,
     word32 hashlen, int* res, ecc_key* key)
 {
@@ -8780,10 +8954,8 @@ static int ecc_verify_hash_sp(mp_int *r, mp_int *s, const byte* hash,
         #if !defined(WC_ECC_NONBLOCK) || (defined(WC_ECC_NONBLOCK) && !defined(WC_ECC_NONBLOCK_ONLY))
             {
                 int ret;
-                SAVE_VECTOR_REGISTERS(return _svr_ret;);
                 ret = sp_ecc_verify_256(hash, hashlen, key->pubkey.x,
                     key->pubkey.y, key->pubkey.z, r, s, res, key->heap);
-                RESTORE_VECTOR_REGISTERS();
                 return ret;
             }
         #endif
@@ -8824,10 +8996,8 @@ static int ecc_verify_hash_sp(mp_int *r, mp_int *s, const byte* hash,
         #if !defined(WC_ECC_NONBLOCK) || (defined(WC_ECC_NONBLOCK) && !defined(WC_ECC_NONBLOCK_ONLY))
             {
                 int ret;
-                SAVE_VECTOR_REGISTERS(return _svr_ret;);
                 ret = sp_ecc_verify_384(hash, hashlen, key->pubkey.x,
                     key->pubkey.y, key->pubkey.z, r, s, res, key->heap);
-                RESTORE_VECTOR_REGISTERS();
                 return ret;
             }
         #endif
@@ -8853,10 +9023,8 @@ static int ecc_verify_hash_sp(mp_int *r, mp_int *s, const byte* hash,
         #if !defined(WC_ECC_NONBLOCK) || (defined(WC_ECC_NONBLOCK) && !defined(WC_ECC_NONBLOCK_ONLY))
             {
                 int ret;
-                SAVE_VECTOR_REGISTERS(return _svr_ret;);
                 ret = sp_ecc_verify_521(hash, hashlen, key->pubkey.x,
                     key->pubkey.y, key->pubkey.z, r, s, res, key->heap);
-                RESTORE_VECTOR_REGISTERS();
                 return ret;
             }
         #endif
@@ -8868,7 +9036,8 @@ static int ecc_verify_hash_sp(mp_int *r, mp_int *s, const byte* hash,
     return NOT_COMPILED_IN;
 }
 
-#if !defined(WOLFSSL_SP_MATH) || defined(FREESCALE_LTC_ECC)
+#if !defined(WOLFSSL_MICROCHIP) && \
+    (!defined(WOLFSSL_SP_MATH) || defined(FREESCALE_LTC_ECC))
 static int ecc_verify_hash(mp_int *r, mp_int *s, const byte* hash,
     word32 hashlen, int* res, ecc_key* key, ecc_curve_spec* curve)
 {
@@ -8879,6 +9048,7 @@ static int ecc_verify_hash(mp_int *r, mp_int *s, const byte* hash,
    ecc_point  lcl_mG;
    ecc_point  lcl_mQ;
 #endif
+
    DECL_MP_INT_SIZE_DYN(w, ECC_KEY_MAX_BITS_NONULLCHECK(key), MAX_ECC_BITS_USE);
 #if !defined(WOLFSSL_ASYNC_CRYPT) || !defined(HAVE_CAVIUM_V)
    DECL_MP_INT_SIZE_DYN(e_lcl, ECC_KEY_MAX_BITS_NONULLCHECK(key), MAX_ECC_BITS_USE);
@@ -8891,6 +9061,11 @@ static int ecc_verify_hash(mp_int *r, mp_int *s, const byte* hash,
 #endif
    mp_int*    u1 = NULL;     /* Will be e. */
    mp_int*    u2 = NULL;     /* Will be w. */
+
+   if (MP_BITS_OVER_MAX(ECC_KEY_MAX_BITS_NONULLCHECK(key), MAX_ECC_BITS_USE)) {
+       return WC_KEY_SIZE_E;
+   }
+
 #if defined(WOLFSSL_ASYNC_CRYPT) && defined(HAVE_CAVIUM_V)
    err = wc_ecc_alloc_mpint(key, &key->e);
    if (err != 0) {
@@ -9201,8 +9376,14 @@ int wc_ecc_verify_hash_ex(mp_int *r, mp_int *s, const byte* hash,
 #else
    int           err;
    word32        keySz = 0;
+#ifndef WC_ALLOW_ECC_ZERO_HASH
+   byte hashIsZero = 0;
+   word32 zIdx;
+#endif
 #if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
    byte sigRS[ATECC_KEY_SIZE*2];
+#elif defined(WOLFSSL_MICROCHIP_TA100)
+   byte sigRS[ECC_MAX_CRYPTO_HW_SIZE*2];
 #elif defined(WOLFSSL_CRYPTOCELL)
    byte sigRS[ECC_MAX_CRYPTO_HW_SIZE*2];
    CRYS_ECDSA_VerifyUserContext_t sigCtxTemp;
@@ -9215,7 +9396,7 @@ int wc_ecc_verify_hash_ex(mp_int *r, mp_int *s, const byte* hash,
 #elif defined(WOLFSSL_XILINX_CRYPT_VERSAL)
    byte sigRS[ECC_MAX_CRYPTO_HW_SIZE * 2];
    byte hashcopy[ECC_MAX_CRYPTO_HW_SIZE] = {0};
-#elif defined(WOLFSSL_SE050)
+#elif defined(WOLFSSL_SE050) && !defined(WOLFSSL_SE050_NO_ECDSA_VERIFY)
 #else
    int curveLoaded = 0;
    DECLARE_CURVE_SPECS(ECC_CURVE_FIELD_COUNT);
@@ -9223,6 +9404,20 @@ int wc_ecc_verify_hash_ex(mp_int *r, mp_int *s, const byte* hash,
 
    if (r == NULL || s == NULL || hash == NULL || res == NULL || key == NULL)
        return ECC_BAD_ARG_E;
+
+    /* Check hash length */
+    if ((hashlen > WC_MAX_DIGEST_SIZE) ||
+        (hashlen < WC_MIN_DIGEST_SIZE)) {
+        return BAD_LENGTH_E;
+    }
+
+#ifndef WC_ALLOW_ECC_ZERO_HASH
+    /* reject all 0's hash */
+    for (zIdx = 0; zIdx < hashlen; zIdx++)
+        hashIsZero |= hash[zIdx];
+    if (hashIsZero == 0)
+        return ECC_BAD_ARG_E;
+#endif
 
    /* default to invalid signature */
    *res = 0;
@@ -9273,7 +9468,22 @@ int wc_ecc_verify_hash_ex(mp_int *r, mp_int *s, const byte* hash,
     }
 #endif /* WOLFSSL_SE050 */
 
-#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
+#if defined(WOLFSSL_MICROCHIP_TA100)
+    if (microchip_curve_id_for_key(key) == ECC_SECP256R1) {
+        err = atmel_ecc_verify(hash, sigRS, key->pubkey_raw, res);
+        if (err != 0) {
+            return err;
+        }
+        (void)hashlen;
+    }
+    else {
+        err = atmel_ecc_verify_ex(hash, hashlen, sigRS, key->pubkey_raw,
+            keySz * 2, microchip_curve_id_for_key(key), res);
+        if (err != 0) {
+           return err;
+        }
+    }
+#elif defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
     err = atmel_ecc_verify(hash, sigRS, key->pubkey_raw, res);
     if (err != 0) {
        return err;
@@ -9457,8 +9667,6 @@ int wc_ecc_import_point_der_ex(const byte* in, word32 inLen,
 #endif
     if (err != MP_OKAY)
         return MEMORY_E;
-
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
 
     /* check for point type (4, 2, or 3) */
     pointType = in[0];
@@ -9651,8 +9859,6 @@ int wc_ecc_import_point_der_ex(const byte* in, word32 inLen,
         mp_clear(point->z);
     }
 
-    RESTORE_VECTOR_REGISTERS();
-
     return err;
 }
 
@@ -9803,9 +10009,9 @@ done:
 }
 #endif /* HAVE_COMP_KEY */
 
-/* export public ECC key in ANSI X9.63 format */
-WOLFSSL_ABI
-int wc_ecc_export_x963(ecc_key* key, byte* out, word32* outLen)
+/* Software-only export of public ECC key in ANSI X9.63 format.
+ * This internal helper avoids recursion when called from the EXPORT_KEY path. */
+static int _ecc_export_x963(ecc_key* key, byte* out, word32* outLen)
 {
    int    ret = MP_OKAY;
    word32 numlen;
@@ -9816,15 +10022,18 @@ int wc_ecc_export_x963(ecc_key* key, byte* out, word32* outLen)
    if (key != NULL && out == NULL && outLen != NULL) {
       /* if key hasn't been setup assume max bytes for size estimation */
       numlen = key->dp ? (word32)key->dp->size : MAX_ECC_BYTES;
+      /* X9.63 uncompressed point: 0x04 header + x coord + y coord */
       *outLen = 1 + 2 * numlen;
       return WC_NO_ERR_TRACE(LENGTH_ONLY_E);
    }
 
-   if (key == NULL || out == NULL || outLen == NULL)
+   if (key == NULL || out == NULL || outLen == NULL) {
       return ECC_BAD_ARG_E;
+   }
 
-   if (key->type == ECC_PRIVATEKEY_ONLY)
+   if (key->type == ECC_PRIVATEKEY_ONLY) {
        return ECC_PRIVATEONLY_E;
+   }
 
 #if defined(WOLFSSL_QNX_CAAM) || defined(WOLFSSL_IMXRT1170_CAAM)
     /* check if public key in secure memory */
@@ -9891,14 +10100,76 @@ done:
 }
 
 
+/* export public ECC key in ANSI X9.63 format */
+WOLFSSL_ABI
+int wc_ecc_export_x963(ecc_key* key, byte* out, word32* outLen)
+{
+#if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_EXPORT_KEY)
+    int ret;
+    WC_DECLARE_VAR(tmpKey, ecc_key, 1, NULL);
+#endif
+
+    if (key == NULL || outLen == NULL) {
+        return ECC_BAD_ARG_E;
+    }
+
+    /* return length needed only */
+    if (out == NULL) {
+        word32 numlen = key->dp ? (word32)key->dp->size : MAX_ECC_BYTES;
+        /* X9.63 uncompressed point: 0x04 header + x coord + y coord */
+        *outLen = 1 + 2 * numlen;
+        return WC_NO_ERR_TRACE(LENGTH_ONLY_E);
+    }
+
+    if (key->type == ECC_PRIVATEKEY_ONLY) {
+        return ECC_PRIVATEONLY_E;
+    }
+
+#if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_EXPORT_KEY)
+    #ifndef WOLF_CRYPTO_CB_FIND
+    if (key->devId != INVALID_DEVID)
+    #endif
+    {
+        WC_ALLOC_VAR(tmpKey, ecc_key, 1, key->heap);
+        if (!WC_VAR_OK(tmpKey)) {
+            return MEMORY_E;
+        }
+        XMEMSET(tmpKey, 0, sizeof(ecc_key));
+
+        ret = wc_ecc_init_ex(tmpKey, key->heap, INVALID_DEVID);
+        if (ret != 0) {
+            WC_FREE_VAR(tmpKey, key->heap);
+            return ret;
+        }
+
+        ret = wc_CryptoCb_ExportKey(key->devId, WC_PK_TYPE_ECDSA_SIGN,
+                                     key, tmpKey);
+        if (ret == 0) {
+            /* Call software helper (no callback recursion) */
+            ret = _ecc_export_x963(tmpKey, out, outLen);
+        }
+
+        wc_ecc_free(tmpKey);
+        WC_FREE_VAR(tmpKey, key->heap);
+
+        if (ret != WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE)) {
+            return ret;
+        }
+    }
+#endif /* WOLF_CRYPTO_CB && WOLF_CRYPTO_CB_EXPORT_KEY */
+
+    return _ecc_export_x963(key, out, outLen);
+}
+
 /* export public ECC key in ANSI X9.63 format, extended with
  * compression option */
 WOLFSSL_ABI
 int wc_ecc_export_x963_ex(ecc_key* key, byte* out, word32* outLen,
                           int compressed)
 {
-    if (compressed == 0)
+    if (compressed == 0) {
         return wc_ecc_export_x963(key, out, outLen);
+    }
 #ifdef HAVE_COMP_KEY
     else
         return wc_ecc_export_x963_compressed(key, out, outLen);
@@ -9908,8 +10179,6 @@ int wc_ecc_export_x963_ex(ecc_key* key, byte* out, word32* outLen,
 }
 #endif /* HAVE_ECC_KEY_EXPORT */
 
-
-#ifdef HAVE_ECC_CHECK_PUBKEY_ORDER
 
 /* is ecc point on curve described by dp ? */
 static int _ecc_is_point(ecc_point* ecp, mp_int* a, mp_int* b, mp_int* prime)
@@ -9939,8 +10208,6 @@ static int _ecc_is_point(ecc_point* ecp, mp_int* a, mp_int* b, mp_int* prime)
       WC_FREE_VAR_EX(t1, NULL, DYNAMIC_TYPE_ECC);
       return err;
    }
-
-   SAVE_VECTOR_REGISTERS(err = _svr_ret;);
 
    /* compute y^2 */
    if (err == MP_OKAY)
@@ -10009,8 +10276,6 @@ static int _ecc_is_point(ecc_point* ecp, mp_int* a, mp_int* b, mp_int* prime)
 
    mp_clear(t1);
    mp_clear(t2);
-
-   RESTORE_VECTOR_REGISTERS();
 
    WC_FREE_VAR_EX(t2, NULL, DYNAMIC_TYPE_ECC);
    WC_FREE_VAR_EX(t1, NULL, DYNAMIC_TYPE_ECC);
@@ -10086,6 +10351,8 @@ int wc_ecc_is_point(ecc_point* ecp, mp_int* a, mp_int* b, mp_int* prime)
 
     return err;
 }
+
+#ifdef HAVE_ECC_CHECK_PUBKEY_ORDER
 
 #if (FIPS_VERSION_GE(5,0) || defined(WOLFSSL_VALIDATE_ECC_KEYGEN) || \
     (defined(WOLFSSL_VALIDATE_ECC_IMPORT) && !defined(WOLFSSL_SP_MATH))) && \
@@ -10234,14 +10501,16 @@ static int ecc_check_privkey_gen(ecc_key* key, mp_int* a, mp_int* prime)
 static int ecc_check_privkey_gen_helper(ecc_key* key)
 {
     int    err;
-#if !defined(WOLFSSL_ATECC508A) && !defined(WOLFSSL_ATECC608A)
+#if !defined(WOLFSSL_ATECC508A) && !defined(WOLFSSL_ATECC608A) && \
+    !defined(WOLFSSL_MICROCHIP_TA100)
     DECLARE_CURVE_SPECS(2);
 #endif
 
     if (key == NULL)
         return BAD_FUNC_ARG;
 
-#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
+#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+    defined(WOLFSSL_MICROCHIP_TA100)
     /* Hardware based private key, so this operation is not supported */
     err = MP_OKAY; /* just report success */
 #elif defined(WOLFSSL_SILABS_SE_ACCEL)
@@ -10454,17 +10723,8 @@ static int _ecc_validate_public_key(ecc_key* key, int partial, int priv)
     int err = MP_OKAY;
 #if defined(HAVE_ECC_CHECK_PUBKEY_ORDER) && !defined(WOLFSSL_SP_MATH)
     mp_int* b = NULL;
-    #ifdef USE_ECC_B_PARAM
-        DECLARE_CURVE_SPECS(4);
-    #else
-        #ifndef WOLFSSL_SMALL_STACK
-            mp_int b_lcl;
-        #endif
-        DECLARE_CURVE_SPECS(3);
-    #endif /* USE_ECC_B_PARAM */
+    DECLARE_CURVE_SPECS(4);
 #endif
-
-    ASSERT_SAVED_VECTOR_REGISTERS();
 
     if (key == NULL)
         return BAD_FUNC_ARG;
@@ -10513,21 +10773,7 @@ static int _ecc_validate_public_key(ecc_key* key, int partial, int priv)
 #endif
 
 #ifndef WOLFSSL_SP_MATH
-    #ifdef USE_ECC_B_PARAM
-        ALLOC_CURVE_SPECS(4, err);
-    #else
-        ALLOC_CURVE_SPECS(3, err);
-        #ifndef WOLFSSL_SMALL_STACK
-            b = &b_lcl;
-        #else
-            b = (mp_int*)XMALLOC(sizeof(mp_int), key->heap, DYNAMIC_TYPE_ECC);
-            if (b == NULL) {
-                FREE_CURVE_SPECS();
-                return MEMORY_E;
-            }
-        #endif
-        XMEMSET(b, 0, sizeof(mp_int));
-    #endif
+    ALLOC_CURVE_SPECS(4, err);
 
     #ifdef WOLFSSL_CAAM
     /* keys can be black encrypted ones which can not be checked like plain text
@@ -10552,22 +10798,10 @@ static int _ecc_validate_public_key(ecc_key* key, int partial, int priv)
     /* load curve info */
     if (err == MP_OKAY)
         err = wc_ecc_curve_load(key->dp, &curve, (ECC_CURVE_FIELD_PRIME |
-            ECC_CURVE_FIELD_AF | ECC_CURVE_FIELD_ORDER
-#ifdef USE_ECC_B_PARAM
-            | ECC_CURVE_FIELD_BF
-#endif
-    ));
+            ECC_CURVE_FIELD_AF | ECC_CURVE_FIELD_ORDER | ECC_CURVE_FIELD_BF));
 
-#ifndef USE_ECC_B_PARAM
-    /* load curve b parameter */
-    if (err == MP_OKAY)
-        err = mp_init(b);
-    if (err == MP_OKAY)
-        err = mp_read_radix(b, key->dp->Bf, MP_RADIX_HEX);
-#else
     if (err == MP_OKAY)
         b = curve->Bf;
-#endif
 
     /* SP 800-56Ar3, section 5.6.2.3.3, process step 2 */
     /* SP 800-56Ar3, section 5.6.2.3.4, process step 2 */
@@ -10624,11 +10858,6 @@ static int _ecc_validate_public_key(ecc_key* key, int partial, int priv)
 
     wc_ecc_curve_free(curve);
 
-#ifndef USE_ECC_B_PARAM
-    mp_clear(b);
-        WC_FREE_VAR_EX(b, key->heap, DYNAMIC_TYPE_ECC);
-#endif
-
     FREE_CURVE_SPECS();
 
 #else
@@ -10648,17 +10877,16 @@ WOLFSSL_ABI
 int wc_ecc_check_key(ecc_key* key)
 {
     int ret;
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
     ret = _ecc_validate_public_key(key, 0, 1);
-    RESTORE_VECTOR_REGISTERS();
     return ret;
 }
 
 
 #ifdef HAVE_ECC_KEY_IMPORT
-/* import public ECC key in ANSI X9.63 format */
-int wc_ecc_import_x963_ex2(const byte* in, word32 inLen, ecc_key* key,
-                           int curve_id, int untrusted)
+/* Software-only import of public ECC key in ANSI X9.63 format.
+ * This internal helper avoids recursion when called from the SETKEY path. */
+static int _ecc_import_x963_ex2(const byte* in, word32 inLen, ecc_key* key,
+                                int curve_id, int untrusted)
 {
     int err = MP_OKAY;
 #ifdef HAVE_COMP_KEY
@@ -10670,8 +10898,10 @@ int wc_ecc_import_x963_ex2(const byte* in, word32 inLen, ecc_key* key,
     const CRYS_ECPKI_Domain_t* pDomain;
     CRYS_ECPKI_BUILD_TempData_t tempBuff;
 #endif
-    if (in == NULL || key == NULL)
+
+    if (in == NULL || key == NULL) {
         return BAD_FUNC_ARG;
+    }
 
     /* must be odd */
     if ((inLen & 1) == 0) {
@@ -10712,8 +10942,6 @@ int wc_ecc_import_x963_ex2(const byte* in, word32 inLen, ecc_key* key,
     mp_forcezero(key->kb);
 #endif
 
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
-
     /* check for point type (4, 2, or 3) */
     pointType = in[0];
     if (pointType != ECC_POINT_UNCOMP && pointType != ECC_POINT_COMP_EVEN &&
@@ -10733,7 +10961,8 @@ int wc_ecc_import_x963_ex2(const byte* in, word32 inLen, ecc_key* key,
     inLen -= 1;
     in += 1;
 
-#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
+#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+    defined(WOLFSSL_MICROCHIP_TA100)
     /* For SECP256R1 only save raw public key for hardware */
     if (curve_id == ECC_SECP256R1 && inLen <= (word32)sizeof(key->pubkey_raw)) {
     #ifdef HAVE_COMP_KEY
@@ -10952,16 +11181,81 @@ int wc_ecc_import_x963_ex2(const byte* in, word32 inLen, ecc_key* key,
      !defined(WOLFSSL_CRYPTOCELL) && \
      (!defined(WOLF_CRYPTO_CB_ONLY_ECC) || defined(WOLFSSL_QNX_CAAM) || \
        defined(WOLFSSL_IMXRT1170_CAAM))
-    if (untrusted) {
-        /* Only do quick checks. */
-        if ((err == MP_OKAY) && wc_ecc_point_is_at_infinity(&key->pubkey)) {
+    if ((err == MP_OKAY) && untrusted) {
+        /* Reject point at infinity. */
+        if (wc_ecc_point_is_at_infinity(&key->pubkey)) {
             err = ECC_INF_E;
         }
-    #ifdef USE_ECC_B_PARAM
-        if ((err == MP_OKAY) && (key->idx != ECC_CUSTOM_IDX))  {
+        /* Verify the point lies on the curve (y^2 = x^3 + ax + b mod p) */
+        if ((err == MP_OKAY) && (key->idx != ECC_CUSTOM_IDX)) {
+    #ifdef WOLFSSL_HAVE_SP_ECC
+        #ifndef WOLFSSL_SP_NO_256
+            if (ecc_sets[key->idx].id == ECC_SECP256R1) {
+                err = sp_ecc_is_point_256(key->pubkey.x, key->pubkey.y);
+            #if defined(WOLFSSL_SM2)
+                if (err != MP_OKAY && curve_id < 0) {
+                    /* Retry with SM2 curve when P-256 returns invalid.
+                     * Only when no explicit curve was requested (curve_id < 0).
+                     * Needed because SM2 keys can be mis-identified as
+                     * SECP256R1 during parsing. */
+                #if defined(WOLFSSL_SP_SM2)
+                    err = sp_ecc_is_point_sm2_256(key->pubkey.x,
+                                                  key->pubkey.y);
+                #else
+                    int sm2_idx = wc_ecc_get_curve_idx(ECC_SM2P256V1);
+                    if (sm2_idx != ECC_CURVE_INVALID)
+                        err = wc_ecc_point_is_on_curve(&key->pubkey, sm2_idx);
+                #endif
+                    if (err == MP_OKAY) {
+                        err = wc_ecc_set_curve(key, WOLFSSL_SM2_KEY_BITS / 8,
+                                               ECC_SM2P256V1);
+                    }
+                }
+            #endif
+            }
+            else
+        #endif
+        #if defined(WOLFSSL_SM2) && defined(WOLFSSL_SP_SM2)
+            if (ecc_sets[key->idx].id == ECC_SM2P256V1) {
+                err = sp_ecc_is_point_sm2_256(key->pubkey.x, key->pubkey.y);
+            }
+            else
+        #endif
+        #ifdef WOLFSSL_SP_384
+            if (ecc_sets[key->idx].id == ECC_SECP384R1) {
+                err = sp_ecc_is_point_384(key->pubkey.x, key->pubkey.y);
+            }
+            else
+        #endif
+        #ifdef WOLFSSL_SP_521
+            if (ecc_sets[key->idx].id == ECC_SECP521R1) {
+                err = sp_ecc_is_point_521(key->pubkey.x, key->pubkey.y);
+            }
+            else
+        #endif
+            {
+                err = wc_ecc_point_is_on_curve(&key->pubkey, key->idx);
+            }
+    #else
             err = wc_ecc_point_is_on_curve(&key->pubkey, key->idx);
+        #if defined(WOLFSSL_SM2)
+            if (err != MP_OKAY && curve_id < 0) {
+                /* Retry with SM2 curve when P-256 returns invalid.
+                 * Only when no explicit curve was requested (curve_id < 0).
+                 * Needed because SM2 keys can be mis-identified as
+                 * SECP256R1 during parsing. */
+                int sm2_idx = wc_ecc_get_curve_idx(ECC_SM2P256V1);
+                if (sm2_idx != ECC_CURVE_INVALID) {
+                    err = wc_ecc_point_is_on_curve(&key->pubkey, sm2_idx);
+                    if (err == MP_OKAY) {
+                        err = wc_ecc_set_curve(key, WOLFSSL_SM2_KEY_BITS / 8,
+                                               ECC_SM2P256V1);
+                    }
+                }
+            }
+        #endif
+    #endif /* WOLFSSL_HAVE_SP_ECC */
         }
-    #endif /* USE_ECC_B_PARAM */
     }
 #endif
     (void)untrusted;
@@ -10979,16 +11273,85 @@ int wc_ecc_import_x963_ex2(const byte* in, word32 inLen, ecc_key* key,
         mp_forcezero(key->k);
     }
 
-    RESTORE_VECTOR_REGISTERS();
-
     return err;
+}
+
+/* import public ECC key in ANSI X9.63 format */
+int wc_ecc_import_x963_ex2(const byte* in, word32 inLen, ecc_key* key,
+                           int curve_id, int untrusted)
+{
+#if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_SETKEY)
+    int cbRet = WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE);
+    int err = 0;
+    WC_DECLARE_VAR(tmpKey, ecc_key, 1, NULL);
+#endif
+
+    if (in == NULL || key == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* must be odd */
+    if ((inLen & 1) == 0) {
+        return ECC_BAD_ARG_E;
+    }
+
+#if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_SETKEY)
+    #ifndef WOLF_CRYPTO_CB_FIND
+    if (key->devId != INVALID_DEVID)
+    #endif
+    {
+        WC_ALLOC_VAR(tmpKey, ecc_key, 1, key->heap);
+        if (!WC_VAR_OK(tmpKey)) {
+            return MEMORY_E;
+        }
+        XMEMSET(tmpKey, 0, sizeof(ecc_key));
+
+        err = wc_ecc_init_ex(tmpKey, key->heap, INVALID_DEVID);
+        if (err != 0) {
+            WC_FREE_VAR(tmpKey, key->heap);
+            return err;
+        }
+
+    #ifdef WOLFSSL_CUSTOM_CURVES
+        if (key->dp != NULL) {
+            err = wc_ecc_set_custom_curve(tmpKey, key->dp);
+            if (err != 0) {
+                wc_ecc_free(tmpKey);
+                WC_FREE_VAR(tmpKey, key->heap);
+                return err;
+            }
+        }
+    #endif
+
+        /* Import into temp via software helper (no callback recursion) */
+        err = _ecc_import_x963_ex2(in, inLen, tmpKey, curve_id, untrusted);
+        if (err == MP_OKAY) {
+            cbRet = wc_CryptoCb_SetKey(key->devId,
+                WC_SETKEY_ECC_PUB, key, tmpKey,
+                wc_ecc_size(tmpKey), NULL, 0, 0);
+        }
+
+        wc_ecc_free(tmpKey);
+        WC_FREE_VAR(tmpKey, key->heap);
+
+        if (err != MP_OKAY) {
+            return err;
+        }
+        if (cbRet != WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE)) {
+            return cbRet;
+        }
+    }
+#endif /* WOLF_CRYPTO_CB && WOLF_CRYPTO_CB_SETKEY */
+
+    return _ecc_import_x963_ex2(in, inLen, key, curve_id, untrusted);
 }
 
 /* import public ECC key in ANSI X9.63 format */
 int wc_ecc_import_x963_ex(const byte* in, word32 inLen, ecc_key* key,
                           int curve_id)
 {
-    return wc_ecc_import_x963_ex2(in, inLen, key, curve_id, 0);
+    /* treat as untrusted: validate the point is on the curve */
+    return wc_ecc_import_x963_ex2(in, inLen, key, curve_id, 1);
 }
 
 WOLFSSL_ABI
@@ -11000,11 +11363,11 @@ int wc_ecc_import_x963(const byte* in, word32 inLen, ecc_key* key)
 
 #ifdef HAVE_ECC_KEY_EXPORT
 
-/* export ecc key to component form, d is optional if only exporting public
- * encType is WC_TYPE_UNSIGNED_BIN or WC_TYPE_HEX_STR
- * return MP_OKAY on success */
-int wc_ecc_export_ex(ecc_key* key, byte* qx, word32* qxLen,
-                 byte* qy, word32* qyLen, byte* d, word32* dLen, int encType)
+/* Software-only export of ecc key to component form.
+ * This internal helper avoids recursion when called from the EXPORT_KEY path. */
+static int _ecc_export_ex(ecc_key* key, byte* qx, word32* qxLen,
+                          byte* qy, word32* qyLen, byte* d, word32* dLen,
+                          int encType)
 {
     int err = 0;
     word32 keySz;
@@ -11024,7 +11387,8 @@ int wc_ecc_export_ex(ecc_key* key, byte* qx, word32* qxLen,
             (key->type != ECC_PRIVATEKEY && key->type != ECC_PRIVATEKEY_ONLY))
             return BAD_FUNC_ARG;
 
-    #if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
+    #if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+        defined(WOLFSSL_MICROCHIP_TA100)
         /* Hardware cannot export private portion */
         return NOT_COMPILED_IN;
     #else
@@ -11095,6 +11459,58 @@ int wc_ecc_export_ex(ecc_key* key, byte* qx, word32* qxLen,
 }
 
 
+/* export ecc key to component form, d is optional if only exporting public
+ * encType is WC_TYPE_UNSIGNED_BIN or WC_TYPE_HEX_STR
+ * return MP_OKAY on success */
+int wc_ecc_export_ex(ecc_key* key, byte* qx, word32* qxLen,
+                 byte* qy, word32* qyLen, byte* d, word32* dLen, int encType)
+{
+#if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_EXPORT_KEY)
+    int err;
+    WC_DECLARE_VAR(tmpKey, ecc_key, 1, NULL);
+#endif
+
+    if (key == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+#if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_EXPORT_KEY)
+    #ifndef WOLF_CRYPTO_CB_FIND
+    if (key->devId != INVALID_DEVID)
+    #endif
+    {
+        WC_ALLOC_VAR(tmpKey, ecc_key, 1, key->heap);
+        if (!WC_VAR_OK(tmpKey)) {
+            return MEMORY_E;
+        }
+        XMEMSET(tmpKey, 0, sizeof(ecc_key));
+
+        err = wc_ecc_init_ex(tmpKey, key->heap, INVALID_DEVID);
+        if (err != 0) {
+            WC_FREE_VAR(tmpKey, key->heap);
+            return err;
+        }
+
+        err = wc_CryptoCb_ExportKey(key->devId, WC_PK_TYPE_ECDSA_SIGN,
+                                     key, tmpKey);
+        if (err == 0) {
+            /* Call software helper (no callback recursion) */
+            err = _ecc_export_ex(tmpKey, qx, qxLen, qy, qyLen, d, dLen,
+                                  encType);
+        }
+
+        wc_ecc_free(tmpKey);
+        WC_FREE_VAR(tmpKey, key->heap);
+
+        if (err != WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE)) {
+            return err;
+        }
+    }
+#endif /* WOLF_CRYPTO_CB && WOLF_CRYPTO_CB_EXPORT_KEY */
+
+    return _ecc_export_ex(key, qx, qxLen, qy, qyLen, d, dLen, encType);
+}
+
 /* export ecc private key only raw, outLen is in/out size as unsigned bin
    return MP_OKAY on success */
 WOLFSSL_ABI
@@ -11143,23 +11559,26 @@ int wc_ecc_export_private_raw(ecc_key* key, byte* qx, word32* qxLen,
 #endif /* HAVE_ECC_KEY_EXPORT */
 
 #ifdef HAVE_ECC_KEY_IMPORT
-/* import private key, public part optional if (pub) passed as NULL */
-int wc_ecc_import_private_key_ex(const byte* priv, word32 privSz,
-                                 const byte* pub, word32 pubSz, ecc_key* key,
-                                 int curve_id)
+/* Software-only import of private key, public part optional.
+ * This internal helper avoids recursion when called from the SETKEY path. */
+static int _ecc_import_private_key_ex(const byte* priv, word32 privSz,
+                                      const byte* pub, word32 pubSz,
+                                      ecc_key* key, int curve_id)
 {
     int ret;
 #ifdef WOLFSSL_CRYPTOCELL
     const CRYS_ECPKI_Domain_t* pDomain;
 #endif
-    if (key == NULL || priv == NULL)
+
+    if (key == NULL || priv == NULL) {
         return BAD_FUNC_ARG;
+    }
 
     /* public optional, NULL if only importing private */
     if (pub != NULL) {
     #ifndef NO_ASN
         word32 idx = 0;
-        ret = wc_ecc_import_x963_ex(pub, pubSz, key, curve_id);
+        ret = _ecc_import_x963_ex2(pub, pubSz, key, curve_id, 0);
         if (ret < 0)
             ret = wc_EccPublicKeyDecode(pub, &idx, key, pubSz);
         key->type = ECC_PRIVATEKEY;
@@ -11272,10 +11691,6 @@ int wc_ecc_import_private_key_ex(const byte* priv, word32 privSz,
     }
 #else
 
-#ifdef WOLFSSL_VALIDATE_ECC_IMPORT
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
-#endif
-
     ret = mp_read_unsigned_bin(key->k, priv, privSz);
 #ifdef HAVE_WOLF_BIGINT
     if (ret == 0 && wc_bigint_from_unsigned_bin(&key->k->raw, priv,
@@ -11326,10 +11741,6 @@ int wc_ecc_import_private_key_ex(const byte* priv, word32 privSz,
 
 #endif
 
-#ifdef WOLFSSL_VALIDATE_ECC_IMPORT
-    RESTORE_VECTOR_REGISTERS();
-#endif
-
 #ifdef WOLFSSL_MAXQ10XX_CRYPTO
     if ((ret == 0) && (key->devId != INVALID_DEVID)) {
         ret = wc_MAXQ10XX_EccSetKey(key, key->dp->size);
@@ -11341,6 +11752,75 @@ int wc_ecc_import_private_key_ex(const byte* priv, word32 privSz,
 #endif
 
     return ret;
+}
+
+/* import private key, public part optional if (pub) passed as NULL */
+int wc_ecc_import_private_key_ex(const byte* priv, word32 privSz,
+                                 const byte* pub, word32 pubSz, ecc_key* key,
+                                 int curve_id)
+{
+#if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_SETKEY)
+    int cbRet = WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE);
+    int tmpErr = 0;
+    WC_DECLARE_VAR(tmpKey, ecc_key, 1, NULL);
+#endif
+
+    if (key == NULL || priv == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+#if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_SETKEY)
+    #ifndef WOLF_CRYPTO_CB_FIND
+    if (key->devId != INVALID_DEVID)
+    #endif
+    {
+        WC_ALLOC_VAR(tmpKey, ecc_key, 1, key->heap);
+        if (!WC_VAR_OK(tmpKey)) {
+            return MEMORY_E;
+        }
+        XMEMSET(tmpKey, 0, sizeof(ecc_key));
+
+        tmpErr = wc_ecc_init_ex(tmpKey, key->heap, INVALID_DEVID);
+        if (tmpErr != 0) {
+            WC_FREE_VAR(tmpKey, key->heap);
+            return tmpErr;
+        }
+
+    #ifdef WOLFSSL_CUSTOM_CURVES
+        if (key->dp != NULL) {
+            tmpErr = wc_ecc_set_custom_curve(tmpKey, key->dp);
+            if (tmpErr != 0) {
+                wc_ecc_free(tmpKey);
+                WC_FREE_VAR(tmpKey, key->heap);
+                return tmpErr;
+            }
+        }
+    #endif
+
+        /* Import into temp via software helper (no callback recursion) */
+        tmpErr = _ecc_import_private_key_ex(priv, privSz, pub, pubSz,
+            tmpKey, curve_id);
+        if (tmpErr == 0) {
+            cbRet = wc_CryptoCb_SetKey(key->devId,
+                WC_SETKEY_ECC_PRIV, key, tmpKey,
+                wc_ecc_size(tmpKey), NULL, 0, 0);
+        }
+
+        /* wc_ecc_free calls mp_forcezero on private key components,
+         * so no separate ForceZero of the struct is needed here. */
+        wc_ecc_free(tmpKey);
+        WC_FREE_VAR(tmpKey, key->heap);
+
+        if (tmpErr != 0) {
+            return tmpErr;
+        }
+        if (cbRet != WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE)) {
+            return cbRet;
+        }
+    }
+#endif /* WOLF_CRYPTO_CB && WOLF_CRYPTO_CB_SETKEY */
+
+    return _ecc_import_private_key_ex(priv, privSz, pub, pubSz, key, curve_id);
 }
 
 /* ecc private key import, public key in ANSI X9.63 format, private raw */
@@ -11462,19 +11942,20 @@ int wc_ecc_sig_to_rs(const byte* sig, word32 sigLen, byte* r, word32* rLen,
 #endif /* !NO_ASN */
 
 #ifdef HAVE_ECC_KEY_IMPORT
-static int wc_ecc_import_raw_private(ecc_key* key, const char* qx,
+/* Software-only import of raw ECC key material.
+ * This internal helper avoids recursion when called from the SETKEY path. */
+static int _ecc_import_raw_private(ecc_key* key, const char* qx,
           const char* qy, const char* d, int curve_id, int encType)
 {
     int err = MP_OKAY;
 #if defined(WOLFSSL_CRYPTOCELL) && !defined(WOLFSSL_ATECC508A) && \
-    !defined(WOLFSSL_ATECC608A)
+    !defined(WOLFSSL_ATECC608A) && !defined(WOLFSSL_MICROCHIP_TA100)
     const CRYS_ECPKI_Domain_t* pDomain;
     CRYS_ECPKI_BUILD_TempData_t tempBuff;
     byte keyRaw[ECC_MAX_CRYPTO_HW_SIZE*2 + 1];
 #endif
-
 #if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
-    defined(WOLFSSL_CRYPTOCELL)
+    defined(WOLFSSL_MICROCHIP_TA100) || defined(WOLFSSL_CRYPTOCELL)
     word32 keySz = 0;
 #endif
 
@@ -11569,7 +12050,8 @@ static int wc_ecc_import_raw_private(ecc_key* key, const char* qx,
     if (err == MP_OKAY)
         err = mp_set(key->pubkey.z, 1);
 
-#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
+#if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+    defined(WOLFSSL_MICROCHIP_TA100)
     /* For SECP256R1 only save raw public key for hardware */
     if (err == MP_OKAY && curve_id == ECC_SECP256R1) {
         keySz = key->dp->size;
@@ -11647,14 +12129,11 @@ static int wc_ecc_import_raw_private(ecc_key* key, const char* qx,
     }
 #endif
 
-#ifdef WOLFSSL_VALIDATE_ECC_IMPORT
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
-#endif
-
     /* import private key */
     if (err == MP_OKAY) {
         if (d != NULL) {
-        #if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A)
+        #if defined(WOLFSSL_ATECC508A) || defined(WOLFSSL_ATECC608A) || \
+            defined(WOLFSSL_MICROCHIP_TA100)
             /* Hardware doesn't support loading private key */
             err = NOT_COMPILED_IN;
 
@@ -11722,9 +12201,11 @@ static int wc_ecc_import_raw_private(ecc_key* key, const char* qx,
 #endif
 
         #endif /* #else-case of custom HW-specific implementations */
-            if (mp_iszero(key->k) || mp_isneg(key->k)) {
-                WOLFSSL_MSG("Invalid private key");
-                err = BAD_FUNC_ARG;
+            if (err == MP_OKAY) {
+                if (mp_iszero(key->k) || mp_isneg(key->k)) {
+                    WOLFSSL_MSG("Invalid private key");
+                    err = BAD_FUNC_ARG;
+                }
             }
         } else {
             key->type = ECC_PUBLICKEY;
@@ -11739,10 +12220,6 @@ static int wc_ecc_import_raw_private(ecc_key* key, const char* qx,
             err = BAD_FUNC_ARG;
         }
     }
-#endif
-
-#ifdef WOLFSSL_VALIDATE_ECC_IMPORT
-    RESTORE_VECTOR_REGISTERS();
 #endif
 
 #ifdef WOLFSSL_MAXQ10XX_CRYPTO
@@ -11766,6 +12243,77 @@ static int wc_ecc_import_raw_private(ecc_key* key, const char* qx,
     }
 
     return err;
+}
+
+static int wc_ecc_import_raw_private(ecc_key* key, const char* qx,
+          const char* qy, const char* d, int curve_id, int encType)
+{
+#if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_SETKEY)
+    int cbRet = WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE);
+    int setKeyType = WC_SETKEY_ECC_PRIV;
+    int err;
+    WC_DECLARE_VAR(tmpKey, ecc_key, 1, NULL);
+#endif
+
+    /* if d is NULL, only import as public key using Qx,Qy */
+    if (key == NULL || qx == NULL || qy == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+#if defined(WOLF_CRYPTO_CB) && defined(WOLF_CRYPTO_CB_SETKEY)
+    #ifndef WOLF_CRYPTO_CB_FIND
+    if (key->devId != INVALID_DEVID)
+    #endif
+    {
+        WC_ALLOC_VAR(tmpKey, ecc_key, 1, key->heap);
+        if (!WC_VAR_OK(tmpKey)) {
+            return MEMORY_E;
+        }
+        XMEMSET(tmpKey, 0, sizeof(ecc_key));
+
+        err = wc_ecc_init_ex(tmpKey, key->heap, INVALID_DEVID);
+        if (err != 0) {
+            WC_FREE_VAR(tmpKey, key->heap);
+            return err;
+        }
+
+    #ifdef WOLFSSL_CUSTOM_CURVES
+        if (key->dp != NULL) {
+            err = wc_ecc_set_custom_curve(tmpKey, key->dp);
+            if (err != 0) {
+                wc_ecc_free(tmpKey);
+                WC_FREE_VAR(tmpKey, key->heap);
+                return err;
+            }
+        }
+    #endif
+
+        /* Import into temp via software helper (no callback recursion) */
+        err = _ecc_import_raw_private(tmpKey, qx, qy, d, curve_id, encType);
+        if (err == MP_OKAY) {
+            if (d == NULL) {
+                setKeyType = WC_SETKEY_ECC_PUB;
+            }
+            cbRet = wc_CryptoCb_SetKey(key->devId,
+                setKeyType, key, tmpKey,
+                wc_ecc_size(tmpKey), NULL, 0, 0);
+        }
+
+        /* wc_ecc_free calls mp_forcezero on private key components,
+         * so no separate ForceZero of the struct is needed here. */
+        wc_ecc_free(tmpKey);
+        WC_FREE_VAR(tmpKey, key->heap);
+
+        if (err != MP_OKAY) {
+            return err;
+        }
+        if (cbRet != WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE)) {
+            return cbRet;
+        }
+    }
+#endif /* WOLF_CRYPTO_CB && WOLF_CRYPTO_CB_SETKEY */
+
+    return _ecc_import_raw_private(key, qx, qy, d, curve_id, encType);
 }
 
 /**
@@ -11852,8 +12400,29 @@ static int ecc_public_key_size(ecc_key* key, word32* sz)
 WOLFSSL_ABI
 int wc_ecc_size(ecc_key* key)
 {
-    if (key == NULL || key->dp == NULL)
+    if (key == NULL) {
         return 0;
+    }
+
+#if defined(WOLF_CRYPTO_CB) && \
+    (defined(WOLF_CRYPTO_CB_SETKEY) || defined(WOLF_CRYPTO_CB_EXPORT_KEY))
+    if (key->devId != INVALID_DEVID) {
+        int ret;
+        int keySz = 0;
+
+        ret = wc_CryptoCb_EccGetSize(key, &keySz);
+        if (ret != WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE)) {
+            if (ret != 0) {
+                return 0;
+            }
+            return keySz;
+        }
+    }
+#endif
+
+    if (key->dp == NULL) {
+        return 0;
+    }
 
     return key->dp->size;
 }
@@ -11883,8 +12452,29 @@ int wc_ecc_sig_size(const ecc_key* key)
     int maxSigSz;
     int orderBits, keySz;
 
-    if (key == NULL || key->dp == NULL)
+    if (key == NULL) {
         return 0;
+    }
+
+#if defined(WOLF_CRYPTO_CB) && \
+    (defined(WOLF_CRYPTO_CB_SETKEY) || defined(WOLF_CRYPTO_CB_EXPORT_KEY))
+    if (key->devId != INVALID_DEVID) {
+        int ret;
+        int cbKeySz = 0;
+
+        ret = wc_CryptoCb_EccGetSigSize(key, &cbKeySz);
+        if (ret != WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE)) {
+            if (ret != 0 || cbKeySz == 0) {
+                return 0;
+            }
+            return cbKeySz;
+        }
+    }
+#endif
+
+    if (key->dp == NULL) {
+        return 0;
+    }
 
     /* the signature r and s will always be less than order */
     /* if the order MSB (top bit of byte) is set then ASN encoding needs
@@ -13252,8 +13842,6 @@ int ecc_mul2add(ecc_point* A, mp_int* kA,
    }
 #endif /* HAVE_THREAD_LS */
 
-      SAVE_VECTOR_REGISTERS(err = _svr_ret;);
-
       /* find point */
       idx1 = find_base(A);
 
@@ -13336,8 +13924,6 @@ int ecc_mul2add(ecc_point* A, mp_int* kA,
         }
       }
 
-      RESTORE_VECTOR_REGISTERS();
-
 #ifndef HAVE_THREAD_LS
     wc_UnLockMutex(&ecc_fp_lock);
 #endif /* HAVE_THREAD_LS */
@@ -13405,8 +13991,6 @@ int wc_ecc_mulmod_ex(const mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
    got_ecc_fp_lock = 1;
 #endif /* HAVE_THREAD_LS */
 
-      SAVE_VECTOR_REGISTERS(err = _svr_ret; goto out;);
-
       /* find point */
       idx = find_base(G);
 
@@ -13455,8 +14039,6 @@ int wc_ecc_mulmod_ex(const mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
         }
       }
 
-      RESTORE_VECTOR_REGISTERS();
-
   out:
 
 #ifndef HAVE_THREAD_LS
@@ -13482,36 +14064,28 @@ int wc_ecc_mulmod_ex(const mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
 #if defined(WOLFSSL_SM2) && defined(WOLFSSL_SP_SM2)
     if ((mp_count_bits(modulus) == 256) && (!mp_is_bit_set(modulus, 224))) {
         int ret;
-        SAVE_VECTOR_REGISTERS(return _svr_ret);
         ret = sp_ecc_mulmod_sm2_256(k, G, R, map, heap);
-        RESTORE_VECTOR_REGISTERS();
         return ret;
     }
 #endif
 #ifndef WOLFSSL_SP_NO_256
     if (mp_count_bits(modulus) == 256) {
         int ret;
-        SAVE_VECTOR_REGISTERS(return _svr_ret;);
         ret = sp_ecc_mulmod_256(k, G, R, map, heap);
-        RESTORE_VECTOR_REGISTERS();
         return ret;
     }
 #endif
 #ifdef WOLFSSL_SP_384
     if (mp_count_bits(modulus) == 384) {
         int ret;
-        SAVE_VECTOR_REGISTERS(return _svr_ret;);
         ret = sp_ecc_mulmod_384(k, G, R, map, heap);
-        RESTORE_VECTOR_REGISTERS();
         return ret;
     }
 #endif
 #ifdef WOLFSSL_SP_521
     if (mp_count_bits(modulus) == 521) {
         int ret;
-        SAVE_VECTOR_REGISTERS(return _svr_ret;);
         ret = sp_ecc_mulmod_521(k, G, R, map, heap);
-        RESTORE_VECTOR_REGISTERS();
         return ret;
     }
 #endif
@@ -13576,8 +14150,6 @@ int wc_ecc_mulmod_ex2(const mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
    got_ecc_fp_lock = 1;
 #endif /* HAVE_THREAD_LS */
 
-      SAVE_VECTOR_REGISTERS(err = _svr_ret; goto out;);
-
       /* find point */
       idx = find_base(G);
 
@@ -13626,8 +14198,6 @@ int wc_ecc_mulmod_ex2(const mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
         }
       }
 
-      RESTORE_VECTOR_REGISTERS();
-
   out:
 
 #ifndef HAVE_THREAD_LS
@@ -13656,36 +14226,28 @@ int wc_ecc_mulmod_ex2(const mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
 #if defined(WOLFSSL_SM2) && defined(WOLFSSL_SP_SM2)
     if ((mp_count_bits(modulus) == 256) && (!mp_is_bit_set(modulus, 224))) {
         int ret;
-        SAVE_VECTOR_REGISTERS(return _svr_ret;);
         ret = sp_ecc_mulmod_sm2_256(k, G, R, map, heap);
-        RESTORE_VECTOR_REGISTERS();
         return ret;
     }
 #endif
 #ifndef WOLFSSL_SP_NO_256
     if (mp_count_bits(modulus) == 256) {
         int ret;
-        SAVE_VECTOR_REGISTERS(return _svr_ret;);
         ret = sp_ecc_mulmod_256(k, G, R, map, heap);
-        RESTORE_VECTOR_REGISTERS();
         return ret;
     }
 #endif
 #ifdef WOLFSSL_SP_384
     if (mp_count_bits(modulus) == 384) {
         int ret;
-        SAVE_VECTOR_REGISTERS(return _svr_ret;);
         ret = sp_ecc_mulmod_384(k, G, R, map, heap);
-        RESTORE_VECTOR_REGISTERS();
         return ret;
     }
 #endif
 #ifdef WOLFSSL_SP_521
     if (mp_count_bits(modulus) == 521) {
         int ret;
-        SAVE_VECTOR_REGISTERS(return _svr_ret;);
         ret = sp_ecc_mulmod_521(k, G, R, map, heap);
-        RESTORE_VECTOR_REGISTERS();
         return ret;
     }
 #endif
@@ -13808,7 +14370,7 @@ enum ecSrvState {
 
 
 struct ecEncCtx {
-    const byte* kdfSalt;   /* optional salt for kdf */
+    byte* kdfSalt;         /* optional salt for kdf */
     const byte* kdfInfo;   /* optional info for kdf */
     const byte* macSalt;   /* optional salt for mac */
     word32    kdfSaltSz;   /* size of kdfSalt */
@@ -14281,8 +14843,6 @@ int wc_ecc_encrypt_ex(ecc_key* privKey, ecc_key* pubKey, const byte* msg,
     }
 #endif
 
-    SAVE_VECTOR_REGISTERS(ret = _svr_ret;);
-
 #ifdef WOLFSSL_ECIES_ISO18033
     XMEMCPY(sharedSecret, out - pubKeySz, pubKeySz);
     sharedSz -= pubKeySz;
@@ -14499,8 +15059,6 @@ int wc_ecc_encrypt_ex(ecc_key* privKey, ecc_key* pubKey, const byte* msg,
 #endif
     }
 
-    RESTORE_VECTOR_REGISTERS();
-
     ForceZero(sharedSecret, sharedSz);
     ForceZero(keys, (word32)keysLen);
     WC_FREE_VAR_EX(sharedSecret, ctx->heap, DYNAMIC_TYPE_ECC_BUFFER);
@@ -14659,8 +15217,6 @@ int wc_ecc_decrypt(ecc_key* privKey, ecc_key* pubKey, const byte* msg,
         return MEMORY_E;
     }
 #endif
-
-    SAVE_VECTOR_REGISTERS(ret = _svr_ret;);
 
 #ifndef WOLFSSL_ECIES_OLD
     if (pubKey == NULL) {
@@ -14895,8 +15451,6 @@ int wc_ecc_decrypt(ecc_key* privKey, ecc_key* pubKey, const byte* msg,
     if (ret == 0)
        *outSz = msgSz - digestSz;
 
-    RESTORE_VECTOR_REGISTERS();
-
 #ifndef WOLFSSL_ECIES_OLD
     if (pubKey == peerKey)
         wc_ecc_free(peerKey);
@@ -14920,6 +15474,7 @@ int wc_ecc_decrypt(ecc_key* privKey, ecc_key* pubKey, const byte* msg,
 
 #ifdef HAVE_COMP_KEY
 #if !defined(WOLFSSL_ATECC508A) && !defined(WOLFSSL_ATECC608A) && \
+    !defined(WOLFSSL_MICROCHIP_TA100) && \
     !defined(WOLFSSL_CRYPTOCELL)
 
 #ifndef WOLFSSL_SP_MATH
@@ -14968,8 +15523,6 @@ static int mp_jacobi(mp_int* a, mp_int* n, int* c)
         WC_FREE_VAR_EX(n1, NULL, DYNAMIC_TYPE_BIGINT);
         return res;
     }
-
-    SAVE_VECTOR_REGISTERS(return _svr_ret;);
 
     if ((res = mp_mod(a, n, a1)) != MP_OKAY) {
         goto done;
@@ -15028,8 +15581,6 @@ static int mp_jacobi(mp_int* a, mp_int* n, int* c)
 
 done:
 
-    RESTORE_VECTOR_REGISTERS();
-
     /* cleanup */
     mp_clear(n1);
     mp_clear(a1);
@@ -15067,8 +15618,6 @@ static int mp_sqrtmod_prime(mp_int* n, mp_int* prime, mp_int* ret)
       return MP_VAL;
   }
 
-  SAVE_VECTOR_REGISTERS(return _svr_ret;);
-
   res = mp_init(&e);
   if (res == MP_OKAY)
       res = mp_mod_d(prime, 8, &i);
@@ -15092,8 +15641,6 @@ static int mp_sqrtmod_prime(mp_int* n, mp_int* prime, mp_int* ret)
 
   mp_clear(&e);
 
-  RESTORE_VECTOR_REGISTERS();
-
   return res;
 #else
   int res, legendre, done = 0;
@@ -15112,8 +15659,6 @@ static int mp_sqrtmod_prime(mp_int* n, mp_int* prime, mp_int* ret)
 #else
   mp_int t1[1], C[1], Q[1], S[1], Z[1], M[1], T[1], R[1], N[1], two[1];
 #endif
-
-  SAVE_VECTOR_REGISTERS(res = _svr_ret; goto out;);
 
   if ((mp_init_multi(t1, C, Q, S, Z, M) != MP_OKAY) ||
       (mp_init_multi(T, R, N, two, NULL, NULL) != MP_OKAY)) {
@@ -15325,8 +15870,6 @@ static int mp_sqrtmod_prime(mp_int* n, mp_int* prime, mp_int* ret)
   }
 
   out:
-
-  RESTORE_VECTOR_REGISTERS();
 
 #ifdef WOLFSSL_SMALL_STACK
   if (t1) {

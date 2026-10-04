@@ -34,16 +34,16 @@
 #include "multihandle.h" /* for ENABLE_WAKEUP */
 #include "tool_xattr.h" /* for USE_XATTR */
 #include "curl_sha512_256.h" /* for CURL_HAVE_SHA512_256 */
-#include "asyn.h" /* for CURLRES_ARES */
+#include "vdns/asyn.h" /* for USE_RESOLV_ARES, USE_RESOLV_THREADED */
 #include "fake_addrinfo.h" /* for USE_FAKE_GETADDRINFO */
 
 #include <stdio.h>
 
-#if defined(USE_QUICHE) || defined(USE_OPENSSL)
+#ifdef USE_OPENSSL
 #include <openssl/opensslconf.h> /* for OPENSSL_NO_OCSP */
 #endif
 
-static const char *disabled[] = {
+static const char * const disabled[] = {
   "bindlocal: "
 #ifdef CURL_DISABLE_BINDLOCAL
   "OFF"
@@ -90,6 +90,13 @@ static const char *disabled[] = {
   ,
   "aws: "
 #ifdef CURL_DISABLE_AWS
+  "OFF"
+#else
+  "ON"
+#endif
+  ,
+  "httpsig: "
+#ifdef CURL_DISABLE_HTTPSIG
   "OFF"
 #else
   "ON"
@@ -145,6 +152,13 @@ static const char *disabled[] = {
   "ON"
 #endif
   ,
+  "resolv-threaded: "
+#ifndef USE_RESOLV_THREADED
+  "OFF"
+#else
+  "ON"
+#endif
+  ,
   "typecheck: "
 #ifdef CURL_DISABLE_TYPECHECK
   "OFF"
@@ -188,14 +202,14 @@ static const char *disabled[] = {
 #endif
   ,
   "large-time: "
-#if (SIZEOF_TIME_T < 5)
+#if SIZEOF_TIME_T < 5
   "OFF"
 #else
   "ON"
 #endif
   ,
   "large-size: "
-#if (SIZEOF_SIZE_T < 5)
+#if SIZEOF_SIZE_T < 5
   "OFF"
 #else
   "ON"
@@ -235,7 +249,7 @@ static const char *disabled[] = {
   ,
   "override-dns: "
 #if defined(CURL_MEMDEBUG) &&                              \
-  (defined(CURLRES_ARES) || defined(USE_FAKE_GETADDRINFO))
+  (defined(USE_RESOLV_ARES) || defined(USE_FAKE_GETADDRINFO))
   "ON"
 #else
   "OFF"
@@ -249,20 +263,16 @@ static const char *disabled[] = {
 #endif
   ,
   "cert-status: "
-#if defined(USE_GNUTLS) || \
-  ((defined(USE_QUICHE) || defined(USE_OPENSSL)) && !defined(OPENSSL_NO_OCSP))
+#if defined(USE_GNUTLS) || (defined(USE_OPENSSL) && !defined(OPENSSL_NO_OCSP))
   "ON"
 #else
   "OFF"
 #endif
 };
 
-int main(int argc, const char **argv)
+int main(void)
 {
   size_t i;
-
-  (void)argc;
-  (void)argv;
 
   for(i = 0; i < CURL_ARRAYSIZE(disabled); i++)
     puts(disabled[i]);

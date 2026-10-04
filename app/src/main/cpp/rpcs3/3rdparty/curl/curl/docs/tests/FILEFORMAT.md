@@ -200,8 +200,9 @@ Available substitute variables include:
 - `%SOCKSPORT` - Port number of the SOCKS4/5 server
 - `%SOCKSUNIXPATH` - Path to the Unix socket of the SOCKS server
 - `%SRCDIR` - Full path to the source dir
-- `%SCP_PWD` - Current directory friendly for the SSH server for the scp:// protocol
-- `%SFTP_PWD` - Current directory friendly for the SSH server for the sftp:// protocol
+- `%SCP_PWD` - Current directory friendly for the SSH server for the `scp://` protocol
+- `%SFTP_PWD` - Current directory friendly for the SSH server for the `sftp://` protocol
+- `%SSHKEYALGO` - SSH host and client key algorithm, e.g. `ssh-rsa` or `ssh-ed25519`
 - `%SSHPORT` - Port number of the SCP/SFTP server
 - `%SSHSRVMD5` - MD5 of SSH server's public key
 - `%SSHSRVSHA256` - SHA256 of SSH server's public key
@@ -259,7 +260,7 @@ similar.
 
 ## `<reply>`
 
-### `<data [nocheck="yes"] [sendzero="yes"] [hex="yes"] [nonewline="yes"] [crlf="yes|headers"]>`
+### `<data [nocheck="yes"] [sendzero="yes"] [nonewline="yes"] [crlf="yes|headers"]>`
 
 data to be sent to the client on its request and later verified that it
 arrived safely. Set `nocheck="yes"` to prevent the test script from verifying
@@ -274,15 +275,12 @@ the HTTP server overrides the part number response returned for a subsequent
 request made by the same test to `previous part number + 1`. For example, if a
 test makes a request which causes the server to return `<data>` that contains
 keyword `swsbounce` then for the next response it ignores the requested part
-number and instead returns `<data1>`. And if `<data1>` contains keyword
+number and instead returns `<data1>`. If `<data1>` contains keyword
 `swsbounce` then the next response is `<data2>` and so on. This is useful for
 auth tests and similar.
 
 `sendzero=yes` means that the (FTP) server "sends" the data even if the size
 is zero bytes. Used to verify curl's behavior on zero bytes transfers.
-
-`hex=yes` means that the data is a sequence of hex pairs. It gets decoded and
-used as "raw" data.
 
 `nonewline=yes` means that the last byte (the trailing newline character)
 should be cut off from the data before sending or comparing it.
@@ -423,7 +421,7 @@ issue.
 
 Commands for the test DNS server.
 
-- `A: [dotted ipv4 address]` - set IPv4 address to return
+- `A: [dotted IPv4 address]` - set IPv4 address to return
 - `AAAA: [numerical IPv6 address]` - set IPv6 address to return, with or
   without `[]`
 
@@ -447,8 +445,6 @@ What server(s) this test case requires/uses. Available servers:
 - `https`
 - `https-proxy`
 - `https-mtls`
-- `httptls+srp`
-- `httptls+srp-ipv6`
 - `http-unix`
 - `imap`
 - `mqtt`
@@ -489,7 +485,7 @@ Features testable here are:
 - `brotli`
 - `c-ares` - c-ares is used for (all) name resolves
 - `CharConv`
-- `codeset-utf8`. If the running codeset is UTF-8 capable.
+- `codeset-utf8` - if the running codeset is UTF-8 capable.
 - `cookies`
 - `crypto`
 - `cygwin`
@@ -511,13 +507,13 @@ Features testable here are:
 - `IPv6`
 - `Kerberos`
 - `Largefile`
-- `large-time` (time_t is larger than 32-bit)
-- `large-size` (size_t is larger than 32-bit)
+- `large-time` - time_t is larger than 32-bit
+- `large-size` - size_t is larger than 32-bit
 - `libssh2`
 - `libssh`
-- `badlibssh` (libssh configuration incompatible with the test suite)
+- `badlibssh` - libssh configuration incompatible with the test suite
 - `libz`
-- `local-http`. The HTTP server runs on 127.0.0.1
+- `local-http` - the HTTP server runs on 127.0.0.1
 - `manual`
 - `mbedtls`
 - `Mime`
@@ -538,9 +534,11 @@ Features testable here are:
 - `SPNEGO`
 - `SSL`
 - `SSLpinning`
+- `SSLS-EXPORT`
 - `SSPI`
 - `threaded-resolver`
 - `TLS-SRP`
+- `torture` - if runtests is running in memory test mode
 - `TrackMemory`
 - `typecheck`
 - `threadsafe`
@@ -591,7 +589,7 @@ command has been run.
 
 If the variable name has no assignment, no `=`, then that variable is deleted.
 
-### `<command [option="no-q/no-output/no-include/no-memdebug/force-output/binary-trace"] [timeout="secs"][delay="secs"][type="perl/shell"]>`
+### `<command [option="no-q/no-output/no-stdout/no-include/no-memdebug/force-output/binary-trace"] [timeout="secs"][delay="secs"][type="perl/shell"]>`
 Command line to run.
 
 If the command spans multiple lines, they are concatenated with a space added
@@ -606,6 +604,9 @@ there is no memory debugging and valgrind gets shut off for this test.
 Set `option="no-output"` to prevent the test script to slap on the `--output`
 argument that directs the output to a file. The `--output` is also not added
 if the verify/stdout section is used.
+
+Set `option="no-stdout"` to prevent the normal stdout redirect template to be
+applied on the command line to run.
 
 Set `option="force-output"` to make use of `--output` even when the test is
 otherwise written to verify stdout.
@@ -636,7 +637,7 @@ parameter is the not negative integer number of seconds for the delay. This
 'delay' attribute is intended for specific test cases, and normally not
 needed.
 
-### `<file name="%LOGDIR/filename" [nonewline="yes"][crlf="yes"]>`
+### `<file name="%LOGDIR/filename" [options]>`
 This creates the named file with this content before the test case is run,
 which is useful if the test case needs a file to act on.
 
@@ -645,6 +646,9 @@ off.
 
 `crlf=yes` forces the newlines to become CRLF even if not written so in the
 test.
+
+`mode="text"` normalizes the line endings to make them compare as text on all
+platforms.
 
 ### `<file1>`
 1 to 4 can be appended to 'file' to create more files.
@@ -750,6 +754,9 @@ in the source file. Note that this makes runtests.pl parse and "guess" what is
 a header and what is not in order to apply the CRLF line endings appropriately.
 
 `loadfile="filename"` makes loading the data from an external file.
+
+To verify that there was nothing sent to stdout, put `%EMPTY` as the only
+content.
 
 ### `<limit>`
 

@@ -25,9 +25,8 @@
 
 /* DoH + HTTPSRR are required */
 #if !defined(CURL_DISABLE_DOH) && defined(USE_HTTPSRR)
-
-#include "doh.h"
-#include "httpsrr.h"
+#include "vdns/doh.h"
+#include "vdns/httpsrr.h"
 
 static CURLcode t1658_setup(void)
 {
@@ -36,12 +35,6 @@ static CURLcode t1658_setup(void)
   return CURLE_OK;
 }
 
-extern CURLcode doh_resp_decode_httpsrr(struct Curl_easy *data,
-                                        const unsigned char *cp, size_t len,
-                                        struct Curl_https_rrinfo **hrr);
-extern void doh_print_httpsrr(struct Curl_easy *data,
-                              struct Curl_https_rrinfo *hrr);
-
 /*
  * The idea here is that we pass one DNS packet at the time to the decoder. we
  * then generate a string output with the results and compare if it matches
@@ -49,11 +42,11 @@ extern void doh_print_httpsrr(struct Curl_easy *data,
  */
 
 static char rrbuffer[256];
-static void rrresults(struct Curl_https_rrinfo *rr, CURLcode res)
+static void rrresults(struct Curl_https_rrinfo *rr, CURLcode result)
 {
   char *p = rrbuffer;
   const char *pend = rrbuffer + sizeof(rrbuffer);
-  curl_msnprintf(rrbuffer, sizeof(rrbuffer), "r:%d|", (int)res);
+  curl_msnprintf(rrbuffer, sizeof(rrbuffer), "r:%d|", (int)result);
   p += strlen(rrbuffer);
 
   if(rr) {
@@ -72,7 +65,7 @@ static void rrresults(struct Curl_https_rrinfo *rr, CURLcode res)
       curl_msnprintf(p, pend - p, "no-def-alpn|");
       p += strlen(p);
     }
-    if(rr->port >= 0) {
+    if(rr->port_set) {
       curl_msnprintf(p, pend - p, "port:%d|", rr->port);
       p += strlen(p);
     }
@@ -362,7 +355,7 @@ static CURLcode test_unit1658(const char *arg)
       "r:43|"
     },
     {
-      "alpn + two ipv4 addresses",
+      "alpn + two IPv4 addresses",
       (const unsigned char *)"\x00\x10" /* 16-bit prio */
       "\x00" /* no RNAME */
       "\x00\x01" /* RR (1 == ALPN) */
@@ -377,7 +370,7 @@ static CURLcode test_unit1658(const char *arg)
       "r:0|p:16|.|alpn:10|ipv4:192.168.0.1|ipv4:192.168.0.2|"
     },
     {
-      "alpn + two ipv4 addresses in wrong order",
+      "alpn + two IPv4 addresses in wrong order",
       (const unsigned char *)"\x00\x10" /* 16-bit prio */
       "\x00" /* no RNAME */
       "\x00\x04" /* RR (4 == Ipv4hints) */
@@ -392,7 +385,7 @@ static CURLcode test_unit1658(const char *arg)
       "r:8|"
     },
     {
-      "alpn + ipv4 address with wrong size",
+      "alpn + IPv4 address with wrong size",
       (const unsigned char *)"\x00\x10" /* 16-bit prio */
       "\x00" /* no RNAME */
       "\x00\x01" /* RR (1 == ALPN) */
@@ -406,7 +399,7 @@ static CURLcode test_unit1658(const char *arg)
       "r:43|"
     },
     {
-      "alpn + one ipv6 address",
+      "alpn + one IPv6 address",
       (const unsigned char *)"\x00\x10" /* 16-bit prio */
       "\x00" /* no RNAME */
       "\x00\x01" /* RR (1 == ALPN) */
@@ -420,7 +413,7 @@ static CURLcode test_unit1658(const char *arg)
       "r:0|p:16|.|alpn:10|ipv6:fe80:dabb:c1ff:fea3:8a22:1234:5678:9123|"
     },
     {
-      "alpn + one ipv6 address with wrong size",
+      "alpn + one IPv6 address with wrong size",
       (const unsigned char *)"\x00\x10" /* 16-bit prio */
       "\x00" /* no RNAME */
       "\x00\x01" /* RR (1 == ALPN) */
@@ -434,7 +427,7 @@ static CURLcode test_unit1658(const char *arg)
       "r:43|"
     },
     {
-      "alpn + two ipv6 addresses",
+      "alpn + two IPv6 addresses",
       (const unsigned char *)"\x00\x10" /* 16-bit prio */
       "\x00" /* no RNAME */
       "\x00\x01" /* RR (1 == ALPN) */
@@ -500,7 +493,26 @@ static CURLcode test_unit1658(const char *arg)
       "ech:fe80dabbc1ff7eb38a22123456789123|"
       "ipv6:fe80:dabb:c1ff:fea3:8a22:1234:5678:9123|"
       "ipv6:ee80:dabb:c1ff:fea3:8a22:1234:5678:9125|"
-    }
+    },
+    {
+      "rname too long label",
+      (const unsigned char *)"\x00\x00" /* 16-bit prio */
+      "\x40"
+      "0123456789012345678901234567890123456789012345678901234567890123"
+      "\x04some\x00", /* RNAME */
+      73,
+      "r:27|",
+    },
+    {
+      "rname long label",
+      (const unsigned char *)"\x00\x00" /* 16-bit prio */
+      "\x3f"
+      "012345678901234567890123456789012345678901234567890123456789012"
+      "\x04some\x00", /* RNAME */
+      72,
+      "r:0|p:0|"
+      "012345678901234567890123456789012345678901234567890123456789012.some.|",
+    },
   };
 
   CURLcode result = CURLE_OUT_OF_MEMORY;
@@ -532,8 +544,7 @@ static CURLcode test_unit1658(const char *arg)
 
       /* free the generated struct */
       if(hrr) {
-        Curl_httpsrr_cleanup(hrr);
-        curl_free(hrr);
+        Curl_httpsrr_destroy(hrr);
       }
     }
     curl_easy_cleanup(easy);

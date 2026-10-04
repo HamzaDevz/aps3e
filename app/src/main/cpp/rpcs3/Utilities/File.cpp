@@ -2,6 +2,7 @@
 #include "mutex.h"
 #include "StrFmt.h"
 
+#include <cstdlib>
 #include <span>
 #include <unordered_map>
 #include <algorithm>
@@ -14,12 +15,38 @@
 
 using namespace std::literals::string_literals;
 
+#ifdef ANDROID
+// The Java side (Emulator.setup_preload_env) sets these before loading this
+// library, so they are available at static-initialization time. Without them
+// fs::get_config_dir()/get_cache_dir() return "" which crashes the VFS init
+// ("Verification failed" in vfs_config.cpp).
+std::string g_android_executable_dir = []
+{
+	if (const char* dir = ::getenv("APS3E_NATIVE_LIB_DIR"))
+		return std::string(dir) + '/';
+	return std::string();
+}();
+std::string g_android_config_dir = []
+{
+	if (const char* dir = ::getenv("APS3E_DATA_DIR"))
+		return std::string(dir) + "/config/";
+	return std::string();
+}();
+std::string g_android_cache_dir = []
+{
+	if (const char* dir = ::getenv("APS3E_DATA_DIR"))
+		return std::string(dir) + "/cache/";
+	return std::string();
+}();
+#endif
+
 #ifdef _WIN32
 
 #include "Utilities/StrUtil.h"
 
 #include <cwchar>
 #include <Windows.h>
+#include <winioctl.h>
 
 static std::unique_ptr<wchar_t[]> to_wchar(std::string_view source)
 {
@@ -141,6 +168,7 @@ static fs::error to_error(DWORD e)
 #include <sys/statvfs.h>
 #include <sys/file.h>
 #include <sys/uio.h>
+#include <sys/ioctl.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <libgen.h>
@@ -152,12 +180,19 @@ static fs::error to_error(DWORD e)
 #include <copyfile.h>
 #include <mach-o/dyld.h>
 #include <limits.h>
+#include <sys/disk.h>
+#include <sys/param.h>
+#include <sys/mount.h>
 #elif defined(__linux__) || defined(__sun)
 #include <sys/sendfile.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
 #include <linux/fs.h>
 #else
 #include <fstream>
+#include <sys/disk.h>
+#include <sys/param.h>
+#include <sys/mount.h>
 #endif
 
 static fs::error to_error(int e)
@@ -176,6 +211,96 @@ static fs::error to_error(int e)
 	case EXDEV: return fs::error::xdev;
 	default: return fs::error::unknown;
 	}
+}
+
+#if defined(__linux__)
+// Major numbers of the block devices an optical disc can be accessed through (see "Documentation/admin-guide/devices.txt")
+constexpr unsigned int s_scsi_cdrom_major = 11; // Optical drive (e.g. "/dev/sr0")
+constexpr unsigned int s_loopback_major = 7; // Disc image attached with "mount"/"losetup" (e.g. "/dev/loop0")
+#endif
+
+// Check whether the provided device node is an optical drive (e.g. a Blu-Ray Disc drive) or a mounted disc image
+static bool is_optical_device_node(const struct ::stat& file_info)
+{
+#if defined(__linux__)
+	// An optical drive is exposed as a block device using the SCSI CD-ROM major number (e.g. "/dev/sr0", "/dev/scd0" or the "/dev/cdrom" link).
+	// A disc image attached through "mount -o loop" (or "losetup") is exposed as a loopback block device instead (e.g. "/dev/loop0"):
+	// it is the counterpart of an ISO file mounted on Windows, where the resulting virtual drive is reported as DRIVE_CDROM
+	if (!S_ISBLK(file_info.st_mode))
+	{
+		return false;
+	}
+
+	const unsigned int device_major = major(file_info.st_rdev);
+
+	return device_major == s_scsi_cdrom_major || device_major == s_loopback_major;
+#elif defined(__APPLE__)
+	// The raw (unbuffered) device is a character device (e.g. "/dev/rdisk2").
+	// NOTE: there is no cheap way to tell an optical drive from any other raw disk here, so any raw disk node is accepted
+	return S_ISCHR(file_info.st_mode);
+#else
+	// On the BSDs an optical drive is a character device (e.g. "/dev/cd0")
+	return S_ISCHR(file_info.st_mode) || S_ISBLK(file_info.st_mode);
+#endif
+}
+
+// Check whether the path is the root of a mounted filesystem (e.g. the mount point of a disc): "st_dev" changes when crossing a mount point
+[[maybe_unused]] static bool is_mount_point(const std::string& path, const struct ::stat& file_info)
+{
+	// A file is never a mount point: discard it without any syscall (the "stat()" below would fail with ENOTDIR anyway)
+	if (!S_ISDIR(file_info.st_mode))
+	{
+		return false;
+	}
+
+	struct ::stat parent_info;
+
+	if (::stat((path + "/..").c_str(), &parent_info) != 0)
+	{
+		return false;
+	}
+
+	return parent_info.st_dev != file_info.st_dev;
+}
+
+// Retrieve the size of a raw device: "fstat()" reports no size (0) on such a device
+static u64 get_raw_device_size(int fd)
+{
+#if defined(__linux__)
+	if (u64 size = 0; ::ioctl(fd, BLKGETSIZE64, &size) == 0)
+	{
+		return size;
+	}
+#elif defined(__APPLE__)
+	u64 block_count = 0;
+	u32 block_size = 0;
+
+	if (::ioctl(fd, DKIOCGETBLOCKCOUNT, &block_count) == 0 && ::ioctl(fd, DKIOCGETBLOCKSIZE, &block_size) == 0)
+	{
+		if (block_size && block_count > u64{umax} / block_size)
+		{
+			fmt::throw_exception("Raw device size overflow (block count: 0x%x, block size: 0x%x)", block_count, block_size);
+		}
+
+		return block_count * block_size;
+	}
+#elif defined(__FreeBSD__) || defined(__DragonFly__)
+	if (off_t media_size = 0; ::ioctl(fd, DIOCGMEDIASIZE, &media_size) == 0)
+	{
+		return static_cast<u64>(media_size);
+	}
+#endif
+
+	// Fallback: seek to the end of the device (restoring the current position afterwards)
+	const off_t old_pos = ::lseek(fd, 0, SEEK_CUR);
+	const off_t end_pos = ::lseek(fd, 0, SEEK_END);
+
+	if (old_pos >= 0)
+	{
+		::lseek(fd, old_pos, SEEK_SET);
+	}
+
+	return end_pos > 0 ? static_cast<u64>(end_pos) : 0;
 }
 
 #endif
@@ -405,12 +530,12 @@ namespace fs
 	class windows_file final : public file_base
 	{
 		HANDLE m_handle;
-		bool m_raw_device;
+		u64 m_raw_device_size; // Size of the raw device, 0 if it's not one: it never changes, so it's retrieved once when the file is opened
 		atomic_t<u64> m_pos {0};
 
 	public:
-		windows_file(HANDLE handle, bool raw_device = false)
-			: m_handle(handle), m_raw_device(raw_device)
+		windows_file(HANDLE handle, u64 raw_device_size = 0)
+			: m_handle(handle), m_raw_device_size(raw_device_size)
 		{
 		}
 
@@ -570,7 +695,7 @@ namespace fs
 
 		u64 size() override
 		{
-			if (!m_raw_device)
+			if (!m_raw_device_size)
 			{
 				// NOTE: this can fail if we access a mounted empty drive (e.g. after unmounting an iso).
 				LARGE_INTEGER size;
@@ -579,11 +704,8 @@ namespace fs
 				return size.QuadPart;
 			}
 
-			// For a raw device, we need to use DeviceIoControl.
-			DISK_GEOMETRY_EX geometry;
-
-			ensure(DeviceIoControl(m_handle, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, nullptr, 0, &geometry, sizeof(geometry), nullptr, nullptr));
-			return geometry.DiskSize.QuadPart;
+			// For a raw device, the size was already retrieved with DeviceIoControl() when the file was opened
+			return m_raw_device_size;
 		}
 
 		native_handle get_handle() override
@@ -622,10 +744,11 @@ namespace fs
 	class unix_file final : public file_base
 	{
 		int m_fd;
+		u64 m_raw_device_size; // Size of the raw device, 0 if it's not one: it never changes, so it's retrieved once when the file is opened
 
 	public:
-		unix_file(int fd)
-			: m_fd(fd)
+		unix_file(int fd, u64 raw_device_size = 0)
+			: m_fd(fd), m_raw_device_size(raw_device_size)
 		{
 		}
 
@@ -644,8 +767,8 @@ namespace fs
 
 			stat_t info {};
 			info.is_directory = S_ISDIR(file_info.st_mode);
-			info.is_writable = file_info.st_mode & 0200; // HACK: approximation
-			info.size = file_info.st_size;
+			info.is_writable = !m_raw_device_size && (file_info.st_mode & 0200); // HACK: approximation
+			info.size = m_raw_device_size ? m_raw_device_size : static_cast<u64>(file_info.st_size); // A raw device reports no size through "fstat()"
 			info.atime = file_info.st_atime;
 			info.mtime = file_info.st_mtime;
 			info.ctime = info.mtime;
@@ -751,10 +874,16 @@ namespace fs
 
 		u64 size() override
 		{
-			struct ::stat file_info;
-			ensure(::fstat(m_fd, &file_info) == 0); // "file::size"
+			if (!m_raw_device_size)
+			{
+				struct ::stat file_info;
+				ensure(::fstat(m_fd, &file_info) == 0); // "file::size"
 
-			return file_info.st_size;
+				return file_info.st_size;
+			}
+
+			// For a raw device, the size was already retrieved with an ioctl when the file was opened
+			return m_raw_device_size;
 		}
 
 		native_handle get_handle() override
@@ -1106,15 +1235,39 @@ bool fs::is_symlink(const std::string& path)
 	return true;
 }
 
-bool fs::is_optical_raw_device([[maybe_unused]] const std::string& path)
+bool fs::is_optical_raw_device(const std::string& path)
 {
 #ifdef _WIN32
 	if (path.starts_with("\\\\.\\"))
 	{
 		return true;
 	}
-#endif
+
 	return false;
+#else
+#ifdef __APPLE__
+	// On Mac OS X optical disks will only ever be mounted under /dev/disk(whatever), similar for raw devices,
+	// so reject anything not containing the disk string.
+	if (!path.starts_with("/dev/disk") && !path.starts_with("/dev/rdisk"))
+	{
+		return false;
+	}
+#else
+	// Skip a useless check if the path cannot point to a device node (device nodes always live in "/dev")
+	if (!path.starts_with("/dev/"))
+	{
+		return false;
+	}
+#endif
+	struct ::stat file_info;
+
+	if (::stat(path.c_str(), &file_info) != 0)
+	{
+		return false;
+	}
+
+	return is_optical_device_node(file_info);
+#endif
 }
 
 bool fs::get_optical_raw_device(const std::string& path, std::string* raw_device)
@@ -1151,8 +1304,132 @@ bool fs::get_optical_raw_device(const std::string& path, std::string* raw_device
 
 		return true;
 	}
-#endif
+
 	return false;
+#elif defined(__linux__)
+	// Here the path points to a mounted optical disc (e.g. "/media/user/PS3_DISC") or to a mounted disc image
+	// (e.g. "mount -o loop game.iso /mnt/game"), so retrieve the device backing the filesystem it belongs to
+	struct ::stat file_info;
+
+	if (::stat(path.c_str(), &file_info) != 0)
+	{
+		return false;
+	}
+
+	// "st_dev" of anything stored on a filesystem backed by a block device matches "st_rdev" of the device itself
+	const dev_t device_id = file_info.st_dev;
+	const unsigned int device_major = major(device_id);
+
+	// Discard at once anything which is not backed by an optical drive or by a loopback device, so that the checks
+	// below (each one costing at least a syscall) only run on an actual candidate
+	if (device_major != s_scsi_cdrom_major && device_major != s_loopback_major)
+	{
+		return false;
+	}
+
+	// Skip a useless check to detect an optical raw device if the path is not the mount point of the disc, it means we are
+	// navigating on subfolders (on Windows, in the same way, only the drive root is accepted)
+	if (!is_mount_point(path, file_info))
+	{
+		return false;
+	}
+
+	const unsigned int device_minor = minor(device_id);
+
+	// Retrieve the device name from sysfs (e.g. "/sys/dev/block/11:0" -> "../../devices/[...]/block/sr0")
+	std::string device_path;
+	char link_target[1024]; // NOTE: "readlink()" never null terminates, so the buffer is used through the returned length only
+
+	if (const ssize_t len = ::readlink(("/sys/dev/block/" + std::to_string(device_major) + ":" + std::to_string(device_minor)).c_str(), link_target, sizeof(link_target)); len > 0)
+	{
+		const std::string_view target{link_target, static_cast<usz>(len)};
+
+		device_path = "/dev/";
+		device_path += target.substr(target.find_last_of('/') + 1);
+	}
+	else if (device_major == s_scsi_cdrom_major)
+	{
+		// Fallback (sysfs not available): the minor number matches the index of the SCSI CD-ROM device
+		device_path = "/dev/sr" + std::to_string(device_minor);
+	}
+	else
+	{
+		return false;
+	}
+
+	// Ensure the resolved node really points to the same optical device
+	struct ::stat device_info;
+
+	if (::stat(device_path.c_str(), &device_info) != 0 || device_info.st_rdev != device_id || !is_optical_device_node(device_info))
+	{
+		return false;
+	}
+
+	if (raw_device)
+	{
+		*raw_device = device_path;
+	}
+
+	return true;
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+	// Here the path points to a mounted optical disc or to a mounted disc image (e.g. attached with "hdiutil"/"mdconfig"),
+	// so retrieve the device backing the filesystem it belongs to
+	struct ::stat file_info;
+
+	if (::stat(path.c_str(), &file_info) != 0)
+	{
+		return false;
+	}
+
+	// Skip a useless check to detect an optical raw device if the path is not the mount point of the disc, it means we are
+	// navigating on subfolders (on Windows, in the same way, only the drive root is accepted). There is no cheap way to
+	// discard a device here (unlike the major number on Linux), so this is the filter which must come first: it rejects
+	// any file without a single syscall and any other folder with just one more
+	if (!is_mount_point(path, file_info))
+	{
+		return false;
+	}
+
+	struct ::statfs mount_info;
+
+	if (::statfs(path.c_str(), &mount_info) != 0)
+	{
+		return false;
+	}
+
+	std::string device_path = mount_info.f_mntfromname; // e.g. "/dev/disk2"
+
+	if (!device_path.starts_with("/dev/"))
+	{
+		return false;
+	}
+
+#ifdef __APPLE__
+	// Use the raw (unbuffered) device (e.g. "/dev/disk2" -> "/dev/rdisk2")
+	if (!device_path.starts_with("/dev/r"))
+	{
+		device_path.insert(5, 1, 'r');
+	}
+#endif
+
+	// Ensure the resolved node really points to a raw device
+	struct ::stat device_info;
+
+	if (::stat(device_path.c_str(), &device_info) != 0 || !is_optical_device_node(device_info))
+	{
+		return false;
+	}
+
+	if (raw_device)
+	{
+		*raw_device = device_path;
+	}
+
+	return true;
+#else
+	// Not supported on this platform
+	return false;
+#endif
 }
 
 bool fs::statfs(const std::string& path, fs::device_stat& info)
@@ -1737,7 +2014,7 @@ fs::file::file(const std::string& path, bs_t<open_mode> mode)
 			return;
 		}
 
-		m_file = std::make_unique<windows_file>(handle, true);
+		m_file = std::make_unique<windows_file>(handle, static_cast<u64>(ensure(geometry.DiskSize.QuadPart)));
 		return;
 	}
 
@@ -1767,7 +2044,7 @@ fs::file::file(const std::string& path, bs_t<open_mode> mode)
 		return;
 	}
 
-	if (info.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM)
+	if ((mode & fs::write) && (info.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM))
 	{
 		CloseHandle(handle);
 		g_tls_error = fs::error::acces;
@@ -1783,6 +2060,9 @@ fs::file::file(const std::string& path, bs_t<open_mode> mode)
 
 	m_file = std::make_unique<windows_file>(handle);
 #else
+	// An optical raw device can only be read: any write related flag makes the opening fail (handled as any other error)
+	const bool raw_device = is_optical_raw_device(path);
+
 	int flags = O_CLOEXEC; // Ensures all files are closed on execl for auto updater
 
 	if (mode & fs::read && mode & fs::write) flags |= O_RDWR;
@@ -1798,7 +2078,7 @@ fs::file::file(const std::string& path, bs_t<open_mode> mode)
 
 	if (mode & fs::write && mode & fs::unread)
 	{
-		if (!(mode & (fs::excl + fs::lock)) && mode & fs::trunc)
+		if (!raw_device && !(mode & (fs::excl + fs::lock)) && mode & fs::trunc)
 		{
 			// Alternative to truncation for "unread" flag (TODO)
 			if (mode & fs::create)
@@ -1829,6 +2109,23 @@ fs::file::file(const std::string& path, bs_t<open_mode> mode)
 	{
 		// Postpone truncation in order to avoid using O_TRUNC on a locked file
 		ensure(::ftruncate(fd, 0) == 0);
+	}
+
+	// If path points to an optical raw device, complete the file opening
+	if (raw_device)
+	{
+		// Try to retrieve the size of the content. If it fails, no disc is probably mounted so abort the file opening
+		const u64 raw_device_size = get_raw_device_size(fd);
+
+		if (!raw_device_size)
+		{
+			::close(fd);
+			g_tls_error = fs::error::noent;
+			return;
+		}
+
+		m_file = std::make_unique<unix_file>(fd, raw_device_size);
+		return;
 	}
 
 	m_file = std::make_unique<unix_file>(fd);
@@ -1954,6 +2251,17 @@ fs::native_handle fs::file::get_handle() const
 	return INVALID_HANDLE_VALUE;
 #else
 	return -1;
+#endif
+}
+
+bool fs::set_sparse([[maybe_unused]] const fs::file& file)
+{
+#ifdef _WIN32
+	FILE_SET_SPARSE_BUFFER sparse{TRUE};
+	DWORD returned = 0;
+	return DeviceIoControl(file.get_handle(), FSCTL_SET_SPARSE, &sparse, sizeof(sparse), nullptr, 0, &returned, nullptr) != FALSE;
+#else
+	return true;
 #endif
 }
 
@@ -2137,6 +2445,9 @@ bool fs::file::strict_read_check(u64 offset, u64 _size, u64 type_size) const
 
 std::string fs::get_executable_path()
 {
+#ifdef ANDROID
+	return g_android_executable_dir + "/dummy-rpcs3.apk";
+#else
 	// Use magic static
 	static const std::string s_exe_path = []
 	{
@@ -2182,10 +2493,14 @@ std::string fs::get_executable_path()
 	}();
 
 	return s_exe_path;
+#endif
 }
 
 std::string fs::get_executable_dir()
 {
+#ifdef ANDROID
+	return g_android_executable_dir;
+#else
 	// Use magic static
 	static const std::string s_exe_dir = []
 	{
@@ -2199,11 +2514,14 @@ std::string fs::get_executable_dir()
 	}();
 
 	return s_exe_dir;
+#endif
 }
 
-extern std::string rp3_get_config_dir();
 const std::string& fs::get_config_dir([[maybe_unused]] bool get_config_subdirectory)
 {
+#ifdef ANDROID
+	return g_android_config_dir;
+#else
 	// Use magic static
 	static const std::string s_dir = []
 	{
@@ -2259,9 +2577,6 @@ const std::string& fs::get_config_dir([[maybe_unused]] bool get_config_subdirect
 		std::replace(dir.begin(), dir.end(), '\\', '/');
 
 		dir.resize(dir.rfind('/') + 1);
-#elif defined(__ANDROID__)
-        dir = rp3_get_config_dir();//"/storage/emulated/0/aps3e/config/";
-		create_path(dir);
 #else
 
 #ifdef __APPLE__
@@ -2296,11 +2611,14 @@ const std::string& fs::get_config_dir([[maybe_unused]] bool get_config_subdirect
 #endif
 
 	return s_dir;
+#endif
 }
 
-extern std::string rp3_get_cache_dir();
 const std::string& fs::get_cache_dir()
 {
+#ifdef ANDROID
+	return g_android_cache_dir;
+#else
 	static const std::string s_dir = []
 	{
 		std::string dir;
@@ -2309,12 +2627,9 @@ const std::string& fs::get_cache_dir()
 		dir = get_config_dir();
 #else
 
-#if defined(__APPLE__)
+#ifdef __APPLE__
 		if (const char* home = ::getenv("HOME"))
 			dir = home + "/Library/Caches"s;
-#elif defined(__ANDROID__)
-        if(true)
-			dir = rp3_get_cache_dir();//"/storage/emulated/0/aps3e/cache"s;
 #else
 		if (const char* cache = ::getenv("XDG_CACHE_HOME"))
 			dir = cache;
@@ -2326,7 +2641,7 @@ const std::string& fs::get_cache_dir()
 		else // Just in case
 			dir = "./cache";
 
-		//dir += "/rpcs3/";
+		dir += "/rpcs3/";
 
 		if (!create_path(dir))
 		{
@@ -2338,6 +2653,7 @@ const std::string& fs::get_cache_dir()
 	}();
 
 	return s_dir;
+#endif
 }
 
 const std::string& fs::get_log_dir()

@@ -127,8 +127,9 @@ https://github.com/curl/curl/issues/685
 #include <curl/curl.h>
 #include <openssl/ssl.h>
 
-CURL *curl;
-static size_t wf(void *ptr, size_t size, size_t nmemb, void *stream)
+static CURL *curl;
+
+static size_t wf(char *ptr, size_t size, size_t nmemb, void *stream)
 {
   const struct curl_tlssessioninfo *info = NULL;
   CURLcode result = curl_easy_getinfo(curl, CURLINFO_TLS_SSL_PTR, &info);
@@ -140,9 +141,9 @@ static size_t wf(void *ptr, size_t size, size_t nmemb, void *stream)
   return size * nmemb;
 }
 
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
-  CURLcode result;
+  CURLcode result = CURLE_OK;
   curl = curl_easy_init();
   if(curl) {
     curl_easy_setopt(curl, CURLOPT_URL, "https://example.com");
@@ -150,7 +151,7 @@ int main(int argc, char **argv)
     result = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
   }
-  return result;
+  return (int)result;
 }
 ~~~
 

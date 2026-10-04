@@ -16,11 +16,7 @@ namespace vk
 	{
 		if (!allow_extensions)
 		{
-#if __ANDROID__
 			_vkGetPhysicalDeviceFeatures(dev, &features);
-#else
-			vkGetPhysicalDeviceFeatures(dev, &features);
-#endif
 			return;
 		}
 
@@ -39,6 +35,7 @@ namespace vk
 		VkPhysicalDeviceBorderColorSwizzleFeaturesEXT border_color_swizzle_info{};
 		VkPhysicalDeviceFaultFeaturesEXT device_fault_info{};
 		VkPhysicalDeviceMultiDrawFeaturesEXT multidraw_info{};
+		VkPhysicalDeviceProvokingVertexFeaturesEXT provoking_vertex_info{};
 
 		// Core features
 		shader_support_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
@@ -92,6 +89,13 @@ namespace vk
 			features2.pNext      = &multidraw_info;
 		}
 
+		if (device_extensions.is_supported(VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME))
+		{
+			provoking_vertex_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT;
+			provoking_vertex_info.pNext = features2.pNext;
+			features2.pNext             = &provoking_vertex_info;
+		}
+
 		_vkGetPhysicalDeviceFeatures2(dev, &features2);
 
 		shader_types_support.allow_float64 = !!features2.features.shaderFloat64;
@@ -108,6 +112,7 @@ namespace vk
 		optional_features_support.barycentric_coords  = !!shader_barycentric_info.fragmentShaderBarycentric;
 		optional_features_support.framebuffer_loops   = !!fbo_loops_info.attachmentFeedbackLoopLayout;
 		optional_features_support.extended_device_fault = !!device_fault_info.deviceFault;
+		optional_features_support.provoking_vertex_last = !!provoking_vertex_info.provokingVertexLast;
 
 		features = features2.features;
 
@@ -121,6 +126,8 @@ namespace vk
 		SET_DESCRIPTOR_BITFLAG(descriptorBindingUniformTexelBufferUpdateAfterBind, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER);
 		SET_DESCRIPTOR_BITFLAG(descriptorBindingStorageTexelBufferUpdateAfterBind, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER);
 #undef SET_DESCRIPTOR_BITFLAG
+
+		descriptor_indexing_support.partially_bound_supported = !!descriptor_indexing_info.descriptorBindingPartiallyBound;
 
 		optional_features_support.shader_stencil_export    = device_extensions.is_supported(VK_EXT_SHADER_STENCIL_EXPORT_EXTENSION_NAME);
 		optional_features_support.conditional_rendering    = device_extensions.is_supported(VK_EXT_CONDITIONAL_RENDERING_EXTENSION_NAME);
@@ -158,13 +165,9 @@ namespace vk
 	void physical_device::get_physical_device_properties_0(bool allow_extensions)
 	{
 		// Core properties only
-#if __ANDROID__
 		_vkGetPhysicalDeviceMemoryProperties(dev, &memory_properties);
 		_vkGetPhysicalDeviceProperties(dev, &props);
-#else
-		vkGetPhysicalDeviceMemoryProperties(dev, &memory_properties);
-		vkGetPhysicalDeviceProperties(dev, &props);
-#endif
+
 		if (!allow_extensions)
 		{
 			return;
@@ -276,12 +279,22 @@ namespace vk
 			shader_types_support.allow_float16 = (driver_properties.driverID == VK_DRIVER_ID_AMD_PROPRIETARY_KHR);
 		}
 
-        if(get_driver_vendor() == driver_vendor::ARM_MALI){
-            shader_types_support.allow_float16=false;
-        }
-	}
+		if (get_driver_vendor() == driver_vendor::ARM_MALI)
+		{
+			// Mali: disable fp16 (broken on most drivers)
+			shader_types_support.allow_float16 = false;
+		}
 
-	std::string physical_device::get_name() const
+#ifdef __ANDROID__
+		if (descriptor_indexing_support.update_after_bind_mask &&
+			get_driver_vendor() == driver_vendor::QUALCOMM)
+		{
+			rsx_log.warning("Android/Adreno: disabling update-after-bind descriptor support (driver bug workaround).");
+			descriptor_indexing_support.update_after_bind_mask = 0;
+		}
+#endif
+	}
+std::string physical_device::get_name() const
 	{
 		return props.deviceName;
 	}
@@ -356,6 +369,15 @@ namespace vk
 				return driver_vendor::ARM_MALI;
 			}
 
+			if (gpu_name.find("Adreno") != umax)
+			{
+#if defined(_WIN32) || defined(ANDROID)
+				return driver_vendor::QUALCOMM;
+#else
+				return driver_vendor::TURNIP;
+#endif
+			}
+
 			return driver_vendor::unknown;
 		}
 		else
@@ -387,6 +409,10 @@ namespace vk
 				return driver_vendor::PANVK;
 			case VK_DRIVER_ID_ARM_PROPRIETARY:
 				return driver_vendor::ARM_MALI;
+			case VK_DRIVER_ID_QUALCOMM_PROPRIETARY:
+				return driver_vendor::QUALCOMM;
+			case VK_DRIVER_ID_MESA_TURNIP:
+				return driver_vendor::TURNIP;
 			default:
 				// Mobile?
 				return driver_vendor::unknown;
@@ -574,6 +600,11 @@ namespace vk
 			requested_extensions.push_back(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
 		}
 
+		if (pgpu->optional_features_support.provoking_vertex_last)
+		{
+			requested_extensions.push_back(VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME);
+		}
+
 #ifdef __APPLE__
 		if (pgpu->optional_features_support.portability)
 		{
@@ -611,14 +642,14 @@ namespace vk
 		// enabled_features.shaderCullDistance = VK_TRUE;  // Alt notation of clip distance
 
 		enabled_features.samplerAnisotropy = VK_TRUE;
+		if (!pgpu->features.depthClamp)
+		{
+			enabled_features.depthClamp = VK_FALSE;
+			rsx_log.error("Your GPU driver does not support depth clamp. This may result in graphical corruption or crashes in some cases.");
+		}
 		enabled_features.textureCompressionBC = pgpu->features.textureCompressionBC;
 		enabled_features.shaderStorageBufferArrayDynamicIndexing = VK_TRUE;
 
-        if (!pgpu->features.depthClamp)
-        {
-            enabled_features.depthClamp = VK_FALSE;
-            rsx_log.error("Your GPU driver does not support depth clamp. This may result in graphical corruption or crashes in some cases.");
-        }
 		// Optionally disable unsupported stuff
 		if (!pgpu->features.fullDrawIndexUint32)
 		{
@@ -719,8 +750,8 @@ namespace vk
 		device.enabledExtensionCount = ::size32(requested_extensions);
 		device.ppEnabledExtensionNames = requested_extensions.data();
 		device.pEnabledFeatures = &enabled_features;
-
-		VkPhysicalDeviceFloat16Int8FeaturesKHR shader_support_info{};
+#if __ANDROID__
+        VkPhysicalDeviceFloat16Int8FeaturesKHR shader_support_info{};
 		if (pgpu->shader_types_support.allow_float16)
 		{
 			// Allow use of f16 type in shaders if possible
@@ -753,6 +784,50 @@ namespace vk
 			indexing_features.pNext = const_cast<void*>(device.pNext);
 			device.pNext = &indexing_features;
 		}
+#else
+		{
+			VkPhysicalDeviceVulkan12Features vulkan12_features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+			vulkan12_features.runtimeDescriptorArray = VK_TRUE;
+			vulkan12_features.uniformBufferStandardLayout = VK_TRUE;
+			if (pgpu->descriptor_indexing_support.partially_bound_supported)
+			{
+				vulkan12_features.descriptorBindingPartiallyBound = VK_TRUE;
+			}
+			vulkan12_features.pNext = const_cast<void*>(device.pNext);
+			device.pNext = &vulkan12_features;
+
+			if (pgpu->descriptor_indexing_support)
+			{
+#define SET_DESCRIPTOR_BITFLAG(field, bit) if (pgpu->descriptor_indexing_support.update_after_bind_mask & (1ull << bit)) vulkan12_features.field = VK_TRUE
+				SET_DESCRIPTOR_BITFLAG(descriptorBindingUniformBufferUpdateAfterBind, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+				SET_DESCRIPTOR_BITFLAG(descriptorBindingSampledImageUpdateAfterBind, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+				SET_DESCRIPTOR_BITFLAG(descriptorBindingSampledImageUpdateAfterBind, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+				SET_DESCRIPTOR_BITFLAG(descriptorBindingStorageImageUpdateAfterBind, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+				SET_DESCRIPTOR_BITFLAG(descriptorBindingStorageBufferUpdateAfterBind, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+				SET_DESCRIPTOR_BITFLAG(descriptorBindingUniformTexelBufferUpdateAfterBind, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER);
+				SET_DESCRIPTOR_BITFLAG(descriptorBindingStorageTexelBufferUpdateAfterBind, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER);
+#undef SET_DESCRIPTOR_BITFLAG
+			}
+
+			if (pgpu->shader_types_support.allow_float16)
+			{
+				// Allow use of f16 type in shaders if possible
+				vulkan12_features.shaderFloat16 = VK_TRUE;
+				rsx_log.notice("GPU/driver supports float16 data types natively. Using native float16_t variables if possible.");
+			}
+			else
+			{
+				rsx_log.notice("GPU/driver lacks support for float16 data types. All float16_t arithmetic will be emulated with float32_t.");
+			}
+		}
+#endif
+
+		// FIXME: Fall back to something. Idk how that would even work though, this really is a hard requirement
+		VkPhysicalDeviceShaderUniformBufferUnsizedArrayFeaturesEXT ubo_unsized_array_feature{};
+		ubo_unsized_array_feature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNIFORM_BUFFER_UNSIZED_ARRAY_FEATURES_EXT;
+		ubo_unsized_array_feature.shaderUniformBufferUnsizedArray = VK_TRUE;
+		ubo_unsized_array_feature.pNext = const_cast<void*>(device.pNext);
+		device.pNext = &ubo_unsized_array_feature;
 
 		VkPhysicalDeviceCustomBorderColorFeaturesEXT custom_border_color_features{};
 		if (pgpu->custom_border_color_support)
@@ -817,6 +892,15 @@ namespace vk
 			shader_barycentric_info.pNext = const_cast<void*>(device.pNext);
 			shader_barycentric_info.fragmentShaderBarycentric = VK_TRUE;
 			device.pNext = &shader_barycentric_info;
+		}
+
+		VkPhysicalDeviceProvokingVertexFeaturesEXT provoking_vertex_info{};
+		if (pgpu->optional_features_support.provoking_vertex_last)
+		{
+			provoking_vertex_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT;
+			provoking_vertex_info.pNext = const_cast<void*>(device.pNext);
+			provoking_vertex_info.provokingVertexLast = VK_TRUE;
+			device.pNext = &provoking_vertex_info;
 		}
 
 		if (auto error = _vkCreateDevice(*pgpu, &device, nullptr, &dev))
@@ -922,6 +1006,11 @@ namespace vk
 	{
 		// Rebalance device local memory types
 		memory_map.device_local.rebalance();
+	}
+
+	bool render_device::get_debug_utils_support() const
+	{
+		return g_cfg.video.renderdoc_compatiblity && pgpu->optional_features_support.debug_utils;
 	}
 
 	void render_device::dump_debug_info(
@@ -1046,7 +1135,7 @@ namespace vk
 
 		for (u32 i = 0; i < memory_properties.memoryTypeCount; i++)
 		{
-			auto& type_info = memory_properties.memoryTypes[i];
+			const auto& type_info = memory_properties.memoryTypes[i];
 			memory_heap_map[type_info.heapIndex].types.push_back({ i, type_info.propertyFlags, 0 });
 		}
 
@@ -1054,9 +1143,9 @@ namespace vk
 		{
 			std::vector<memory_type> results;
 
-			for (auto& heap : memory_heap_map)
+			for (const auto& heap : memory_heap_map)
 			{
-				for (auto &type : heap.types)
+				for (const auto& type : heap.types)
 				{
 					if (((type.flags & desired_flags) == desired_flags) && !(type.flags & excluded_flags))
 					{

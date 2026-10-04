@@ -328,18 +328,16 @@ static int curltest_tweak_handler(request_rec *r)
         }
         else if(!strcmp("chunk_size", arg)) {
           chunk_size = (int)apr_atoi64(val);
-          if(chunk_size >= 0) {
-            if(chunk_size > sizeof(buffer)) {
-              ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                            "chunk_size %zu too large", chunk_size);
-              ap_die(HTTP_BAD_REQUEST, r);
-              return OK;
-            }
-            continue;
+          if(chunk_size > sizeof(buffer)) {
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                          "chunk_size %zu too large", chunk_size);
+            ap_die(HTTP_BAD_REQUEST, r);
+            return OK;
           }
+          continue;
         }
         else if(!strcmp("id", arg)) {
-          /* just an id for repeated requests with curl's URL globbing */
+          /* an id for repeated requests with curl's URL globbing */
           request_id = val;
           continue;
         }
@@ -396,8 +394,7 @@ static int curltest_tweak_handler(request_rec *r)
         continue;
       }
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "query parameter not "
-                    "understood: '%s' in %s",
-                    arg, r->args);
+                    "understood: '%s' in %s", arg, r->args);
       ap_die(HTTP_BAD_REQUEST, r);
       return OK;
     }
@@ -406,7 +403,10 @@ static int curltest_tweak_handler(request_rec *r)
   ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r, "error_handler: processing "
                 "request, %s", r->args? r->args : "(no args)");
   r->status = http_status;
-  r->clength = with_cl ? (chunks * chunk_size) : -1;
+  if(with_cl)
+    r->clength = (apr_off_t)chunks * chunk_size;
+  else
+    r->clength = -1;
   r->chunked = (r->proto_num >= HTTP_VERSION(1, 1)) && !with_cl;
   apr_table_setn(r->headers_out, "request-id", request_id);
   if(r->clength >= 0) {
@@ -418,9 +418,9 @@ static int curltest_tweak_handler(request_rec *r)
   /* Discourage content-encodings */
   apr_table_unset(r->headers_out, "Content-Encoding");
   if(x_hd_len > 0) {
-    int i, hd_len = (16 * 1024);
+    int hd_len = (16 * 1024);
     int n = (x_hd_len / hd_len);
-    char *hd_val = apr_palloc(r->pool, x_hd_len);
+    char *hd_val = apr_palloc(r->pool, hd_len);
     memset(hd_val, 'X', hd_len);
     hd_val[hd_len - 1] = 0;
     for(i = 0; i < n; ++i) {
@@ -497,7 +497,7 @@ cleanup:
     r->connection->keepalive = AP_CONN_CLOSE;
   }
   ap_log_rerror(APLOG_MARK, APLOG_TRACE1, rv, r,
-                "error_handler: request cleanup, r->status=%d, aborted=%d, "
+                "error_handler: request cleanup, r->status=%d, aborted=%u, "
                 "close=%d", r->status, c->aborted, close_conn);
   if(rv == APR_SUCCESS) {
     return OK;
@@ -551,7 +551,7 @@ static int curltest_put_handler(request_rec *r)
         *s = '\0';
         val = s + 1;
         if(!strcmp("id", arg)) {
-          /* just an id for repeated requests with curl's URL globbing */
+          /* an id for repeated requests with curl's URL globbing */
           request_id = val;
           continue;
         }
@@ -573,8 +573,7 @@ static int curltest_put_handler(request_rec *r)
         }
       }
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "query parameter not "
-                    "understood: '%s' in %s",
-                    arg, r->args);
+                    "understood: '%s' in %s", arg, r->args);
       ap_die(HTTP_BAD_REQUEST, r);
       return OK;
     }
@@ -748,7 +747,7 @@ static int curltest_sslinfo_handler(request_rec *r)
         *s = '\0';
         val = s + 1;
         if(!strcmp("id", arg)) {
-          /* just an id for repeated requests with curl's URL globbing */
+          /* an id for repeated requests with curl's URL globbing */
           request_id = val;
           continue;
         }
@@ -759,8 +758,7 @@ static int curltest_sslinfo_handler(request_rec *r)
         continue;
       }
       ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "query parameter not "
-                    "understood: '%s' in %s",
-                    arg, r->args);
+                    "understood: '%s' in %s", arg, r->args);
       ap_die(HTTP_BAD_REQUEST, r);
       return OK;
     }
@@ -824,11 +822,134 @@ cleanup:
   return DECLINED;
 }
 
+struct curltest_limit_rec {
+  int rcount;
+  int rlimit;
+  apr_time_t end;
+  apr_time_t duration_sec;
+  struct apr_thread_mutex_t *lock;
+};
+
+static struct curltest_limit_rec limitrec = {
+  0, 5, 0, 2, NULL
+};
+
+static int curltest_limit_handler(request_rec *r)
+{
+  conn_rec *c = r->connection;
+  apr_bucket_brigade *bb;
+  apr_bucket *b;
+  apr_status_t rv;
+  const char *request_id = NULL;
+  int i, denied;
+  apr_time_t now;
+
+  if(strcmp(r->handler, "curltest-limit")) {
+    return DECLINED;
+  }
+  if(r->method_number != M_GET) {
+    return DECLINED;
+  }
+
+  if(r->args) {
+    apr_array_header_t *args = apr_cstr_split(r->args, "&", 1, r->pool);
+    for(i = 0; i < args->nelts; ++i) {
+      char *s, *val, *arg = APR_ARRAY_IDX(args, i, char *);
+      s = strchr(arg, '=');
+      if(s) {
+        *s = '\0';
+        val = s + 1;
+        if(!strcmp("id", arg)) {
+          /* an id for repeated requests with curl's URL globbing */
+          request_id = val;
+          continue;
+        }
+      }
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "query parameter not "
+                    "understood: '%s' in %s", arg, r->args);
+      ap_die(HTTP_BAD_REQUEST, r);
+      return OK;
+    }
+  }
+
+  ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r, "limit: processing");
+
+  now = apr_time_now();
+  apr_thread_mutex_lock(limitrec.lock);
+  if(limitrec.end && (now > limitrec.end)) {
+    /* reset limit */
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "limit: reset");
+    limitrec.rcount = 0;
+    limitrec.end = 0;
+  }
+  limitrec.rcount += 1;
+  denied = (limitrec.rcount > limitrec.rlimit);
+  if(denied) {
+    /* extend limit duration */
+    limitrec.end = now + apr_time_from_sec(limitrec.duration_sec);
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "limit: denied, %d request %s",
+                  limitrec.rcount, request_id);
+  }
+  else {
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "limit: ok, %d request %s",
+                  limitrec.rcount, request_id);
+  }
+  apr_thread_mutex_unlock(limitrec.lock);
+
+  r->status = denied ? 429 : 200;
+  r->clength = -1;
+  r->chunked = 1;
+  apr_table_unset(r->headers_out, "Content-Length");
+  /* Discourage content-encodings */
+  apr_table_unset(r->headers_out, "Content-Encoding");
+  if(request_id)
+    apr_table_setn(r->headers_out, "request-id", request_id);
+  apr_table_setn(r->subprocess_env, "no-brotli", "1");
+  apr_table_setn(r->subprocess_env, "no-gzip", "1");
+
+  if(denied) {
+    char *v = apr_psprintf(r->pool, "%ld", limitrec.duration_sec);
+    apr_table_set(r->headers_out, "Retry-After", v);
+  }
+
+  ap_set_content_type(r, "text/plain");
+
+  bb = apr_brigade_create(r->pool, c->bucket_alloc);
+
+  apr_brigade_puts(bb, NULL, NULL, "The resource served with limits.\n");
+
+  /* flush response */
+  b = apr_bucket_flush_create(c->bucket_alloc);
+  APR_BRIGADE_INSERT_TAIL(bb, b);
+  rv = ap_pass_brigade(r->output_filters, bb);
+  if(APR_SUCCESS != rv)
+    goto cleanup;
+
+  /* we are done */
+  b = apr_bucket_eos_create(c->bucket_alloc);
+  APR_BRIGADE_INSERT_TAIL(bb, b);
+  rv = ap_pass_brigade(r->output_filters, bb);
+
+cleanup:
+  if(rv == APR_SUCCESS ||
+     r->status != HTTP_OK ||
+     c->aborted) {
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE1, rv, r, "limit: done");
+    return OK;
+  }
+  else {
+    /* no way to know what type of error occurred */
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE1, rv, r, "limit failed");
+    return AP_FILTER_ERROR;
+  }
+  return DECLINED;
+}
+
 static int curltest_post_config(apr_pool_t *p, apr_pool_t *plog,
                                 apr_pool_t *ptemp, server_rec *s)
 {
   void *data = NULL;
-  const char *key = "mod_curltest_init_counter";
+  static const char *key = "mod_curltest_init_counter";
 
   (void)p;
   (void)plog;
@@ -842,9 +963,7 @@ static int curltest_post_config(apr_pool_t *p, apr_pool_t *plog,
     return APR_SUCCESS;
   }
 
-  /* mess with the overall server here */
-
-  return APR_SUCCESS;
+  return apr_thread_mutex_create(&limitrec.lock, APR_THREAD_MUTEX_DEFAULT, p);
 }
 
 static void curltest_hooks(apr_pool_t *pool)
@@ -861,6 +980,7 @@ static void curltest_hooks(apr_pool_t *pool)
   ap_hook_handler(curltest_tweak_handler, NULL, NULL, APR_HOOK_MIDDLE);
   ap_hook_handler(curltest_1_1_required, NULL, NULL, APR_HOOK_MIDDLE);
   ap_hook_handler(curltest_sslinfo_handler, NULL, NULL, APR_HOOK_MIDDLE);
+  ap_hook_handler(curltest_limit_handler, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 AP_DECLARE_MODULE(curltest) =

@@ -38,16 +38,19 @@ static CURLSTScode hstsread(CURL *curl, struct curl_hstsentry *e, void *userp)
   };
 
   static const struct entry preload_hosts[] = {
-#if (SIZEOF_TIME_T < 5)
+#if SIZEOF_TIME_T < 5
     { "1.example.com", "20370320 01:02:03" },
-    { "2.example.com", "20370320 03:02:01" },
+    { "2.example.com.", "20370320 03:02:01" },
     { "3.example.com", "20370319 01:02:03" },
+    { ".3.example.com", "20270319 01:02:03" },
 #else
     { "1.example.com", "25250320 01:02:03" },
-    { "2.example.com", "25250320 03:02:01" },
+    { "2.example.com.", "25250320 03:02:01" },
     { "3.example.com", "25250319 01:02:03" },
+    { ".3.example.com", "22250319 01:02:03" },
 #endif
-    { "4.example.com", "" },
+    { "4.example.com", "" }, /* forever */
+    { ".4.example.com", "20370319 01:02:03" },
     { NULL, NULL } /* end of list marker */
   };
 
@@ -85,7 +88,8 @@ static CURLSTScode hstswrite(CURL *curl, struct curl_hstsentry *e,
 {
   (void)curl;
   (void)userp;
-  curl_mprintf("[%zu/%zu] %s %s\n", i->index, i->total, e->name, e->expire);
+  curl_mprintf("[%zu/%zu] %s%s %s\n", i->index, i->total,
+               e->includeSubDomains ? "." : "", e->name, e->expire);
   return CURLSTS_OK;
 }
 
@@ -120,7 +124,7 @@ static CURLcode test_lib1915(const char *URL)
   curl = NULL;
   if(result == CURLE_OPERATION_TIMEDOUT) /* we expect that on Windows */
     result = CURLE_COULDNT_CONNECT;
-  curl_mprintf("First request returned %d\n", result);
+  curl_mprintf("First request returned %d\n", (int)result);
   result = CURLE_OK;
 
   easy_init(curl);
@@ -137,7 +141,7 @@ static CURLcode test_lib1915(const char *URL)
   result = curl_easy_perform(curl);
   curl_easy_cleanup(curl);
   curl = NULL;
-  curl_mprintf("Second request returned %d\n", result);
+  curl_mprintf("Second request returned %d\n", (int)result);
 
 test_cleanup:
   curl_easy_cleanup(curl);

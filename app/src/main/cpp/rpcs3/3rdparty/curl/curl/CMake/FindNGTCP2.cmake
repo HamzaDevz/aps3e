@@ -49,37 +49,48 @@
 #
 # - `NGTCP2_FOUND`:                     System has ngtcp2.
 # - `NGTCP2_VERSION`:                   Version of ngtcp2.
+# - `NGTCP2_CRYPTO_BACKEND`:            Name of the crypto library component. (Empty if COMPONENTS was not used.)
 # - `CURL::ngtcp2`:                     ngtcp2 library target.
 
+set(NGTCP2_CRYPTO_BACKEND "")
 if(NGTCP2_FIND_COMPONENTS)
-  set(_ngtcp2_crypto_backend "")
   foreach(_component IN LISTS NGTCP2_FIND_COMPONENTS)
     if(_component MATCHES "^(BoringSSL|GnuTLS|LibreSSL|ossl|quictls|wolfSSL)")
-      if(_ngtcp2_crypto_backend)
+      if(NGTCP2_CRYPTO_BACKEND)
         message(FATAL_ERROR "NGTCP2: Only one crypto library can be selected")
       endif()
-      set(_ngtcp2_crypto_backend ${_component})
+      set(NGTCP2_CRYPTO_BACKEND ${_component})
     endif()
   endforeach()
 
-  if(_ngtcp2_crypto_backend)
-    string(TOLOWER "ngtcp2_crypto_${_ngtcp2_crypto_backend}" _crypto_library_lower)
-    string(TOUPPER "ngtcp2_crypto_${_ngtcp2_crypto_backend}" _crypto_library_upper)
+  if(NGTCP2_CRYPTO_BACKEND)
+    string(TOLOWER "ngtcp2_crypto_${NGTCP2_CRYPTO_BACKEND}" _crypto_library_lower)
+    string(TOUPPER "ngtcp2_crypto_${NGTCP2_CRYPTO_BACKEND}" _crypto_library_upper)
   endif()
 endif()
 
 set(_ngtcp2_pc_requires "libngtcp2")
-if(_ngtcp2_crypto_backend)
+if(NGTCP2_CRYPTO_BACKEND)
   list(APPEND _ngtcp2_pc_requires "lib${_crypto_library_lower}")
 endif()
 
 set(_tried_pkgconfig FALSE)
-if(CURL_USE_PKGCONFIG AND
-   NOT DEFINED NGTCP2_INCLUDE_DIR AND
+if(NOT DEFINED NGTCP2_INCLUDE_DIR AND
    NOT DEFINED NGTCP2_LIBRARY)
-  find_package(PkgConfig QUIET)
-  pkg_check_modules(_ngtcp2 ${_ngtcp2_pc_requires})
-  set(_tried_pkgconfig TRUE)
+  if(CURL_USE_PKGCONFIG)
+    find_package(PkgConfig QUIET)
+    pkg_check_modules(_ngtcp2 ${_ngtcp2_pc_requires})
+    set(_tried_pkgconfig TRUE)
+  endif()
+  if(NOT _ngtcp2_FOUND AND CURL_USE_CMAKECONFIG AND NGTCP2_CRYPTO_BACKEND)
+    find_package(ngtcp2 CONFIG QUIET)
+    # Skip using it if the crypto library target is not available
+    if(ngtcp2_CONFIG AND
+       NOT TARGET ngtcp2::${_crypto_library_lower}_static AND
+       NOT TARGET ngtcp2::${_crypto_library_lower})
+      unset(ngtcp2_CONFIG)
+    endif()
+  endif()
 endif()
 
 if(_ngtcp2_FOUND)
@@ -92,6 +103,15 @@ if(_ngtcp2_FOUND)
     set(_ngtcp2_LIBRARIES    "${_ngtcp2_STATIC_LIBRARIES}")
   endif()
   message(STATUS "Found NGTCP2 (via pkg-config): ${_ngtcp2_INCLUDE_DIRS} (found version \"${NGTCP2_VERSION}\")")
+elseif(ngtcp2_CONFIG)
+  set(NGTCP2_FOUND TRUE)
+  set(NGTCP2_VERSION ${ngtcp2_VERSION})
+  if(NGTCP2_USE_STATIC_LIBS OR NOT TARGET ngtcp2::ngtcp2)
+    set(_ngtcp2_LIBRARIES ngtcp2::ngtcp2_static ngtcp2::${_crypto_library_lower}_static)
+  else()
+    set(_ngtcp2_LIBRARIES ngtcp2::ngtcp2 ngtcp2::${_crypto_library_lower})
+  endif()
+  message(STATUS "Found NGTCP2 (via CMake Config): ${ngtcp2_CONFIG} (found version \"${NGTCP2_VERSION}\")")
 else()
   find_path(NGTCP2_INCLUDE_DIR NAMES "ngtcp2/ngtcp2.h")
   if(NGTCP2_USE_STATIC_LIBS)
@@ -111,7 +131,7 @@ else()
     unset(_version_str)
   endif()
 
-  if(_ngtcp2_crypto_backend)
+  if(NGTCP2_CRYPTO_BACKEND)
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.20)
       cmake_path(GET NGTCP2_LIBRARY PARENT_PATH _ngtcp2_library_dir)
     else()
@@ -126,7 +146,7 @@ else()
     endif()
 
     if(${_crypto_library_upper}_LIBRARY)
-      set(NGTCP2_${_ngtcp2_crypto_backend}_FOUND TRUE)
+      set(NGTCP2_${NGTCP2_CRYPTO_BACKEND}_FOUND TRUE)
       set(NGTCP2_CRYPTO_LIBRARY ${${_crypto_library_upper}_LIBRARY})
     endif()
   endif()
@@ -155,10 +175,6 @@ else()
 endif()
 
 if(NGTCP2_FOUND)
-  if(CMAKE_VERSION VERSION_LESS 3.13)
-    link_directories(${_ngtcp2_LIBRARY_DIRS})
-  endif()
-
   if(NOT TARGET CURL::ngtcp2)
     add_library(CURL::ngtcp2 INTERFACE IMPORTED)
     set_target_properties(CURL::ngtcp2 PROPERTIES

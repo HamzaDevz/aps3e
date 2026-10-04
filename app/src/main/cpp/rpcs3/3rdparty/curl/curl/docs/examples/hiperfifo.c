@@ -42,7 +42,7 @@
  * curl_multi "hiper" API.
  *
  * Thus, you can try a single URL:
- *   % echo http://www.yahoo.com > hiper.fifo
+ *   % echo http://www.example.com > hiper.fifo
  *
  * Or a whole bunch of them:
  *   % cat my-url-list > hiper.fifo
@@ -270,7 +270,9 @@ static int sock_cb(CURL *e, curl_socket_t s, int what, void *cbp, void *sockp)
 {
   struct GlobalInfo *g = (struct GlobalInfo *)cbp;
   struct SockInfo *fdp = (struct SockInfo *)sockp;
-  const char *whatstr[] = { "none", "IN", "OUT", "INOUT", "REMOVE" };
+  static const char * const whatstr[] = {
+    "none", "IN", "OUT", "INOUT", "REMOVE"
+  };
 
   fprintf(MSG_OUT, "socket callback: s=%d e=%p what=%s ", s, e, whatstr[what]);
   if(what == CURL_POLL_REMOVE) {
@@ -292,7 +294,7 @@ static int sock_cb(CURL *e, curl_socket_t s, int what, void *cbp, void *sockp)
 }
 
 /* CURLOPT_WRITEFUNCTION */
-static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *data)
+static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *data)
 {
   (void)ptr;
   (void)data;
@@ -376,14 +378,14 @@ static void fifo_cb(int fd, short event, void *arg)
 }
 
 /* Create a named pipe and tell libevent to monitor it */
-static const char *fifo = "hiper.fifo";
+static const char fifo[] = "hiper.fifo";
 static int init_fifo(struct GlobalInfo *g)
 {
   struct stat st;
   curl_socket_t sockfd;
 
   fprintf(MSG_OUT, "Creating named pipe \"%s\"\n", fifo);
-  if(lstat(fifo, &st) == 0) {
+  if(!lstat(fifo, &st)) {
     if((st.st_mode & S_IFMT) == S_IFREG) {
       errno = EEXIST;
       perror("lstat");

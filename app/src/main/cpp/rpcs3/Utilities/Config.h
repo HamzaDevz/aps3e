@@ -91,15 +91,15 @@ namespace cfg
 		// Get dynamic property for reloading configs during games
 		bool get_is_dynamic() const { return m_dynamic; }
 
-        //
-        virtual int64_t get_min() const
-        {
-            return 0;
-        }
-        virtual int64_t get_max() const
-        {
-            return 0;
-        }
+		virtual int64_t get_min() const
+		{
+			return 0;
+		}
+		virtual int64_t get_max() const
+		{
+			return 0;
+		}
+
 		// Reset defaults
 		virtual void from_default() = 0;
 
@@ -221,25 +221,7 @@ namespace cfg
 			return def ? "true" : "false";
 		}
 
-		bool from_string(std::string_view value, bool /*dynamic*/ = false) override
-		{
-			if (value.size() != 4 && value.size() != 5)
-			{
-				return false;
-			}
-
-			char copy[5];
-			std::transform(value.begin(), value.end(), std::begin(copy), ::tolower);
-
-			if (value.size() == 5 && std::string_view{copy, 5} == "false")
-				m_value = false;
-			else if (value.size() == 4 && std::string_view{copy, 4} == "true")
-				m_value = true;
-			else
-				return false;
-
-			return true;
-		}
+		bool from_string(std::string_view value, bool dynamic = false) override;
 
 		void set(const bool& value)
 		{
@@ -351,6 +333,15 @@ namespace cfg
 
 		// Expose range
 		static constexpr s64 max = Max;
+
+		int64_t get_min() const override
+		{
+			return static_cast<int64_t>(min);
+		}
+		int64_t get_max() const override
+		{
+			return static_cast<int64_t>(max);
+		}
 		static constexpr s64 min = Min;
 
 		_int(node* owner, const std::string& name, int_type def = std::min<int_type>(Max, std::max<int_type>(Min, 0)), bool dynamic = false)
@@ -371,14 +362,6 @@ namespace cfg
 			return m_value;
 		}
 
-        int64_t get_min() const override
-        {
-            return static_cast<int64_t>(min);
-        }
-        int64_t get_max() const override
-        {
-            return static_cast<int64_t>(max);
-        }
 		void from_default() override
 		{
 			m_value = def;
@@ -457,15 +440,6 @@ namespace cfg
 		{
 			return m_value;
 		}
-
-        int64_t get_min() const override
-        {
-            return static_cast<int64_t>(min);
-        }
-        int64_t get_max() const override
-        {
-            return static_cast<int64_t>(max);
-        }
 
 		void from_default() override
 		{
@@ -565,15 +539,6 @@ namespace cfg
 		{
 			return m_value;
 		}
-
-        int64_t get_min() const override
-        {
-            return static_cast<int64_t>(min);
-        }
-        int64_t get_max() const override
-        {
-            return static_cast<int64_t>(max);
-        }
 
 		void from_default() override
 		{
@@ -738,6 +703,11 @@ namespace cfg
 		}
 
 		std::string to_string() const override
+		{
+			return *m_value.load().get();
+		}
+
+		std::string get() const
 		{
 			return *m_value.load().get();
 		}

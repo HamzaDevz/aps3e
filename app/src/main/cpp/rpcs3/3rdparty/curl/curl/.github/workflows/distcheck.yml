@@ -8,10 +8,12 @@ name: 'dist'
   push:
     branches:
       - master
+      - 'curl-*'
       - '*/ci'
   pull_request:
     branches:
       - master
+      - 'curl-*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
@@ -20,7 +22,9 @@ concurrency:
 permissions: {}
 
 env:
-  CURL_TEST_MIN: 1450
+  CURL_TEST_MIN: 1500
+  DO_NOT_TRACK: '1'
+  HOMEBREW_NO_INSTALL_CLEANUP: '1'
   MAKEFLAGS: -j 5
 
 jobs:
@@ -29,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -48,7 +52,7 @@ jobs:
       - name: 'maketgz'
         run: SOURCE_DATE_EPOCH=1711526400 ./scripts/maketgz 99.98.97
 
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: 'release-tgz'
           path: 'curl-99.98.97.tar.gz'
@@ -74,7 +78,7 @@ jobs:
     timeout-minutes: 10
     needs: maketgz-and-verify-in-tree
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: 'release-tgz'
 
@@ -98,7 +102,7 @@ jobs:
     timeout-minutes: 10
     needs: maketgz-and-verify-in-tree
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: 'release-tgz'
 
@@ -124,7 +128,7 @@ jobs:
     timeout-minutes: 10
     needs: maketgz-and-verify-in-tree
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: 'release-tgz'
 
@@ -148,7 +152,7 @@ jobs:
     timeout-minutes: 10
     needs: maketgz-and-verify-in-tree
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: 'release-tgz'
 
@@ -169,7 +173,7 @@ jobs:
     timeout-minutes: 5
     needs: maketgz-and-verify-in-tree
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: 'release-tgz'
 
@@ -191,7 +195,7 @@ jobs:
     timeout-minutes: 5
     needs: maketgz-and-verify-in-tree
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: 'release-tgz'
 
@@ -213,11 +217,11 @@ jobs:
     timeout-minutes: 5
     needs: maketgz-and-verify-in-tree
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: 'release-tgz'
 
@@ -229,7 +233,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -265,9 +269,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [ubuntu-24.04-arm, macos-latest, windows-2022]
+        image: [ubuntu-26.04-arm, macos-latest, windows-2022]
     steps:
-      - uses: msys2/setup-msys2@4f806de0a5a7294ffabaff804b38a9b435a73bda # v2.30.0
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
         if: ${{ contains(matrix.image, 'windows') }}
         with:
           msystem: mingw64
@@ -276,7 +280,7 @@ jobs:
           cache: false
           path-type: inherit
           install: >-
-            mingw-w64-x86_64-zlib mingw-w64-x86_64-zstd mingw-w64-x86_64-libpsl mingw-w64-x86_64-libssh2 mingw-w64-x86_64-nghttp2 mingw-w64-x86_64-openssl
+            perl mingw-w64-x86_64-zlib mingw-w64-x86_64-zstd mingw-w64-x86_64-libpsl mingw-w64-x86_64-libssh2 mingw-w64-x86_64-nghttp2 mingw-w64-x86_64-openssl
 
       - name: 'install prereqs'
         timeout-minutes: 3
@@ -284,26 +288,29 @@ jobs:
           if [[ "${MATRIX_IMAGE}" = *'windows'* ]]; then
             cd ~
             curl --disable --fail --silent --show-error --connect-timeout 15 --max-time 60 --retry 3 --retry-connrefused \
-              --location "https://github.com/Kitware/CMake/releases/download/v${OLD_CMAKE_VERSION}/cmake-${OLD_CMAKE_VERSION}-win64-x64.zip" --output pkg.bin
+              --location --proto-redir =https "https://github.com/Kitware/CMake/releases/download/v${OLD_CMAKE_VERSION}/cmake-${OLD_CMAKE_VERSION}-win64-x64.zip" --output pkg.bin
             sha256sum pkg.bin && sha256sum pkg.bin | grep -qwF -- "${OLD_CMAKE_SHA256_WIN_INTEL}" && unzip -q pkg.bin && rm -f pkg.bin
             printf '%s' ~/cmake-"${OLD_CMAKE_VERSION}"-win64-x64/bin/cmake.exe > ~/old-cmake-path.txt
           elif [[ "${MATRIX_IMAGE}" = *'ubuntu'* ]]; then
+            sudo find /etc/apt/sources.list.d -type f -not -name 'ubuntu.sources' -delete -print
+            sudo sed -i 's/priority:1/priority:9/' /etc/apt/apt-mirrors.txt; cat /etc/apt/apt-mirrors.txt
+            sudo apt-get -o Dpkg::Use-Pty=0 update
             sudo apt-get -o Dpkg::Use-Pty=0 install libpsl-dev libssl-dev
             cd ~
             curl --disable --fail --silent --show-error --connect-timeout 15 --max-time 60 --retry 3 --retry-connrefused \
-              --location "https://github.com/Kitware/CMake/releases/download/v${OLD_CMAKE_VERSION}/cmake-${OLD_CMAKE_VERSION}-Linux-aarch64.tar.gz" --output pkg.bin
+              --location --proto-redir =https "https://github.com/Kitware/CMake/releases/download/v${OLD_CMAKE_VERSION}/cmake-${OLD_CMAKE_VERSION}-Linux-aarch64.tar.gz" --output pkg.bin
             sha256sum pkg.bin | tee /dev/stderr | grep -qwF -- "${OLD_CMAKE_SHA256_LINUX_ARM}" && tar -xzf pkg.bin && rm -f pkg.bin
             printf '%s' ~/cmake-"${OLD_CMAKE_VERSION}"-Linux-aarch64/bin/cmake > ~/old-cmake-path.txt
           else
             brew install libpsl openssl
             cd ~
             curl --disable --fail --silent --show-error --connect-timeout 15 --max-time 60 --retry 3 --retry-connrefused \
-              --location "https://github.com/Kitware/CMake/releases/download/v${OLD_CMAKE_VERSION}/cmake-${OLD_CMAKE_VERSION}-macos-universal.tar.gz" --output pkg.bin
+              --location --proto-redir =https "https://github.com/Kitware/CMake/releases/download/v${OLD_CMAKE_VERSION}/cmake-${OLD_CMAKE_VERSION}-macos-universal.tar.gz" --output pkg.bin
             sha256sum pkg.bin | tee /dev/stderr | grep -qwF -- "${OLD_CMAKE_SHA256_MACOS_UNI}" && tar -xzf pkg.bin && rm -f pkg.bin
             printf '%s' ~/cmake-"${OLD_CMAKE_VERSION}"-macos-universal/CMake.app/Contents/bin/cmake > ~/old-cmake-path.txt
           fi
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -322,7 +329,8 @@ jobs:
       - name: 'via find_package (PREFER_CONFIG=ON)'
         if: ${{ contains(matrix.image, 'windows') }}
         run: |
-          export TEST_CMAKE_FLAGS_PROVIDER='-DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON -DCURL_ZSTD=OFF -DNGHTTP2_INCLUDE_DIR=C:/msys64/mingw64/include -DNGHTTP2_LIBRARY=C:/msys64/mingw64/lib/libnghttp2.dll.a'
+          export TEST_CMAKE_FLAGS_PROVIDER='-DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON -DCURL_ZSTD=OFF'
+          TEST_CMAKE_FLAGS_PROVIDER+=' -DNGHTTP2_INCLUDE_DIR=C:/msys64/mingw64/include -DNGHTTP2_LIBRARY=C:/msys64/mingw64/lib/libnghttp2.dll.a'
           export TEST_CMAKE_FLAGS_CONSUMER="${TEST_CMAKE_FLAGS_PROVIDER}"
           ./tests/cmake/test.sh find_package ${TESTOPTS} -DCURL_USE_OPENSSL=ON
 
@@ -364,3 +372,41 @@ jobs:
             export TEST_CMAKE_FLAGS='-DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DOPENSSL_ROOT_DIR=C:/msys64/mingw64'
           fi
           ./tests/cmake/test.sh find_package ${TESTOPTS} -DCURL_USE_OPENSSL=ON
+
+  verify-tarball-downloads:
+    name: 'Verify tarball downloads'
+    runs-on: ubuntu-slim
+    timeout-minutes: 2
+    steps:
+      - name: 'download and import GPG key'
+        env:
+          CURL_GPG_ID: 27EDEAF22F3ABCEB50DB9A125CC908FDB71E12C2
+        run: |
+          for keyserver in \
+            https://keyserver.ubuntu.com/ \
+            https://pgpkeys.eu/ \
+          ; do
+            echo "--- Downloading from ${keyserver}..."
+            if curl --disable --fail --silent --show-error --connect-timeout 15 --max-time 60 --retry 3 --retry-connrefused \
+               "${keyserver}pks/lookup?op=get&options=mr&exact=on&search=0x${CURL_GPG_ID}" \
+               | gpg --batch --keyserver-options timeout=15 --display-charset utf-8 --keyid-format 0xlong --import --status-fd 1 2>&1; then
+              break
+            fi
+          done
+
+      - name: 'download and verify tarballs'
+        run: |
+          echo "--- Detecting latest curl tarball version..."
+          curl_version="$(curl --disable --fail --silent --show-error --connect-timeout 15 --max-time 60 --retry 3 --retry-connrefused https://curl.se/info.json \
+            | jq --raw-output .Version)"
+
+          for suffix in .tar.bz2 .tar.gz .tar.xz .zip; do
+            echo "--- Downloading ${curl_version} ${suffix}..."
+            curl --disable --fail --silent --show-error --connect-timeout 15 --max-time 60 --retry 3 --retry-connrefused \
+              --output pkg.bin "https://curl.se/download/curl-${curl_version}${suffix}" \
+              --output pkg.sig "https://curl.se/download/curl-${curl_version}${suffix}.asc"
+            echo "--- Verifying ${curl_version} ${suffix}..."
+            gpg --batch --keyserver-options timeout=15 --display-charset utf-8 --keyid-format 0xlong --verify-options show-primary-uid-only \
+              --verify pkg.sig pkg.bin 2>&1
+            echo '---'
+          done

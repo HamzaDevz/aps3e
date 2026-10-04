@@ -5,6 +5,7 @@
 HTTP
 HTTP GET
 HTTP/3
+--resolve
 </keywords>
 </info>
 
@@ -72,7 +73,7 @@ via: 1.1 nghttpx
 s/^server: nghttpx.*\r?\n//
 </stripfile>
 <limits>
-Allocations: 155
+Allocations: 170
 Maximum allocated: 1800000
 </limits>
 </verify>

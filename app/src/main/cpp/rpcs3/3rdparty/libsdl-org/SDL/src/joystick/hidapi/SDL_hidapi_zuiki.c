@@ -62,8 +62,8 @@ static float median_filter_update(MedianFilter_t* mf, float input) {
     if (mf->count < FILTER_SIZE) mf->count++;
     float temp[FILTER_SIZE];
     SDL_memcpy(temp, mf->buffer, sizeof(temp));
-    for (int i = 0; i < mf->count - 1; i++) {
-        for (int j = i + 1; j < mf->count; j++) {
+    for (uint8_t i = 0; i < mf->count - 1; i++) {
+        for (uint8_t j = i + 1; j < mf->count; j++) {
             if (temp[i] > temp[j]) {
                 float t = temp[i];
                 temp[i] = temp[j];
@@ -98,6 +98,7 @@ static bool HIDAPI_DriverZUIKI_IsSupportedDevice(SDL_HIDAPI_Device *device, cons
         case USB_PRODUCT_ZUIKI_EVOTOP_UWB_DINPUT:
         case USB_PRODUCT_ZUIKI_EVOTOP_PC_DINPUT:
         case USB_PRODUCT_ZUIKI_EVOTOP_PC_BT:
+        case USB_PRODUCT_ZUIKI_EVOTOP_AXIS_DINPUT:
             return true;
         default:
             break;
@@ -148,6 +149,9 @@ static bool HIDAPI_DriverZUIKI_InitDevice(SDL_HIDAPI_Device *device)
                 ctx->sensor_rate = 50.0f;
             }
             HIDAPI_SetDeviceName(device, "ZUIKI EVOTOP");
+            break;
+        case USB_PRODUCT_ZUIKI_EVOTOP_AXIS_DINPUT:
+            HIDAPI_SetDeviceName(device, "ZUIKI EVOTOP AXIS");
             break;
         default:
             break;
@@ -207,7 +211,9 @@ static bool HIDAPI_DriverZUIKI_RumbleJoystickTriggers(SDL_HIDAPI_Device *device,
 static Uint32 HIDAPI_DriverZUIKI_GetJoystickCapabilities(SDL_HIDAPI_Device *device, SDL_Joystick *joystick)
 {
     Uint32 caps = 0;
-    caps |= SDL_JOYSTICK_CAP_RUMBLE;
+    if (device->product_id != USB_PRODUCT_ZUIKI_EVOTOP_AXIS_DINPUT) {
+        caps |= SDL_JOYSTICK_CAP_RUMBLE;
+    }
     return caps;
 }
 
@@ -453,7 +459,8 @@ static bool HIDAPI_DriverZUIKI_UpdateDevice(SDL_HIDAPI_Device *device)
             HIDAPI_DriverZUIKI_Handle_EVOTOP_PCBT_StatePacket(joystick, ctx, data, size);
         } else if (device->product_id == USB_PRODUCT_ZUIKI_EVOTOP_PC_DINPUT
             || device->product_id == USB_PRODUCT_ZUIKI_MASCON_PRO
-            || device->product_id == USB_PRODUCT_ZUIKI_EVOTOP_UWB_DINPUT) {
+            || device->product_id == USB_PRODUCT_ZUIKI_EVOTOP_UWB_DINPUT
+            || device->product_id == USB_PRODUCT_ZUIKI_EVOTOP_AXIS_DINPUT) {
             HIDAPI_DriverZUIKI_HandleOldStatePacket(joystick, ctx, data, size);
         }
     }

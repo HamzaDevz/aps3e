@@ -32,7 +32,7 @@
 
 static const char olivertwist[] =
   "Among other public buildings in a certain town, which for many reasons "
-  "it will be prudent to refrain from mentioning, and to which I will assign "
+  "it is prudent to refrain from mentioning, and to which I assign "
   "no fictitious name, there is one anciently common to most towns, great or "
   "small: to ___, a workhouse; and in this workhouse was born; on a day and "
   "date which I need not trouble myself to repeat, inasmuch as it can be of "
@@ -40,14 +40,14 @@ static const char olivertwist[] =
   "all events; the item of mortality whose name is prefixed";
 
 /* ... to the head of this chapter. String cut off to stick within the C90
-   509 byte limit. */
+   509-byte limit. */
 
 /*
  * This example shows an HTTP PUT operation that sends a fixed buffer with
  * CURLOPT_POSTFIELDS to the URL given as an argument.
  */
 
-int main(int argc, const char **argv)
+int main(int argc, const char *argv[])
 {
   CURL *curl;
   CURLcode result;

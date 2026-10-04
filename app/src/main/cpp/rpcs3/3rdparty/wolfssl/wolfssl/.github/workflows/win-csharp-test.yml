@@ -2,14 +2,15 @@ name: Windows CSharp Build Test
 
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '*' ]
 
 jobs:
   build:
 
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: windows-latest
 
     # This should be a safe limit for the tests to run.
@@ -27,7 +28,7 @@ jobs:
 
     steps:
         - name: Pull wolfssl
-          uses: actions/checkout@v4
+          uses: actions/checkout@v5
           with:
             repository: wolfssl/wolfssl
             path: wolfssl
@@ -41,7 +42,7 @@ jobs:
             echo $null >> wolfcrypt\src\wolfcrypt_last.c
 
         - name: Add MSBuild to PATH
-          uses: microsoft/setup-msbuild@v2
+          uses: microsoft/setup-msbuild@v3
 
         - name: Build
           working-directory: ${{env.GITHUB_WORKSPACE}}

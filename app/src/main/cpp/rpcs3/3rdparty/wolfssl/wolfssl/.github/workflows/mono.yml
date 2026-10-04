@@ -3,8 +3,9 @@ name: Linux Mono C# Build Test
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '*' ]
 
 concurrency:
@@ -15,10 +16,16 @@ concurrency:
 jobs:
   build_wolfssl:
     name: Build wolfSSL C# Wrapper
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+
+    - name: Checkout wolfSSL CI actions
+      uses: actions/checkout@v5
+      with:
+        sparse-checkout: .github/actions
+        fetch-depth: 1
 
     # Build wolfSSL using the user_settings.h from the C# wrapper directory
     - name: Build wolfSSL
@@ -30,9 +37,10 @@ jobs:
         check: false
 
     - name: Install mono-complete
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y mono-complete
+      uses: ./.github/actions/install-apt-deps
+      with:
+        packages: mono-complete
+        ghcr-debs-tag: ubuntu-24.04-full
 
     - name: Copy wolfSSL.dll to C# wrapper directory
       run: |

@@ -11,8 +11,6 @@
 #include "Emu/RSX/Program/RSXVertexProgram.h"
 #include "Emu/RSX/Program/RSXFragmentProgram.h"
 #include "Overlays/Shaders/shader_loading_dialog.h"
-#include "Emu/localized_string_id.h"
-#include "Emu/localized_string.h"
 
 #include <chrono>
 
@@ -268,8 +266,8 @@ namespace rsx
 				dlg = fallback_dlg.get();
 			}
 
-            dlg->create(get_localized_string(localized_string_id::PROGRESS_DIALOG_PRELOADING_SHADER_CACHE), "Shader Compilation");
-            dlg->set_limit(0, entry_count);
+			dlg->create("Preloading cached shaders from disk.\nPlease wait...", "Shader Compilation");
+			dlg->set_limit(0, entry_count);
 			dlg->set_limit(1, entry_count);
 			dlg->update_msg(0, get_message(0, 0, entry_count));
 			dlg->update_msg(1, get_message(1, 0, entry_count));

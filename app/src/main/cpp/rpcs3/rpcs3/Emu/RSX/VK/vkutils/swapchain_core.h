@@ -168,11 +168,11 @@ namespace vk
 		VkColorSpaceKHR m_color_space = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 		VkSwapchainKHR m_vk_swapchain = nullptr;
 
-		/*PFN_vkCreateSwapchainKHR _vkCreateSwapchainKHR = nullptr;
+		PFN_vkCreateSwapchainKHR _vkCreateSwapchainKHR = nullptr;
 		PFN_vkDestroySwapchainKHR _vkDestroySwapchainKHR = nullptr;
 		PFN_vkGetSwapchainImagesKHR _vkGetSwapchainImagesKHR = nullptr;
 		PFN_vkAcquireNextImageKHR _vkAcquireNextImageKHR = nullptr;
-		PFN_vkQueuePresentKHR _vkQueuePresentKHR = nullptr;*/
+		PFN_vkQueuePresentKHR _vkQueuePresentKHR = nullptr;
 
 		bool m_wm_reports_flag = false;
 
@@ -183,9 +183,7 @@ namespace vk
 		swapchain_WSI(vk::physical_device& gpu, u32 present_queue, u32 graphics_queue, u32 transfer_queue, VkFormat format, VkSurfaceKHR surface, VkColorSpaceKHR color_space, bool force_wm_reporting_off);
 
 		~swapchain_WSI() override = default;
-
 		void create(display_handle_t&) override;
-		//{}
 
 		void destroy(bool = true) override;
 

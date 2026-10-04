@@ -60,7 +60,7 @@
 #define INADDR_NONE 0xffffffff
 #endif
 
-static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *stream)
+static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *stream)
 {
   size_t written = fwrite(ptr, size, nmemb, (FILE *)stream);
   return written;
@@ -164,7 +164,7 @@ int main(void)
     close(sockfd);
 
     if(result != CURLE_OK) {
-      printf("libcurl error: %d\n", result);
+      printf("libcurl error: %d\n", (int)result);
       return 4;
     }
   }

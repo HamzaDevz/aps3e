@@ -44,8 +44,11 @@ int wc_AesCbcEncrypt(Aes* aes, byte* out, const byte* in, word32 sz)
         return BAD_FUNC_ARG;
     }
 
-    /* encrypt only up to AES block size of date */
+    /* encrypt only up to AES block size of data */
     sz = sz - (sz % WC_AES_BLOCK_SIZE);
+    if (sz == 0) {
+        return 0;
+    }
     if (aes->ctx.cfd == -1) {
             ret = wc_DevCryptoCreate(&aes->ctx, CRYPTO_AES_CBC,
                     (byte*)aes->devKey, aes->keylen);
@@ -73,6 +76,9 @@ int wc_AesCbcDecrypt(Aes* aes, byte* out, const byte* in, word32 sz)
 
     if (aes == NULL || out == NULL || in == NULL || sz % WC_AES_BLOCK_SIZE != 0) {
         return BAD_FUNC_ARG;
+    }
+    if (sz == 0) {
+        return 0;
     }
 
     XMEMCPY(aes->tmp, in + sz - WC_AES_BLOCK_SIZE, WC_AES_BLOCK_SIZE);
@@ -247,13 +253,20 @@ int wc_AesCtrEncrypt(Aes* aes, byte* out, const byte* in, word32 sz)
     /* create key stream for later if needed */
     if (sz > 0) {
         Aes tmpAes;
-        if ((ret = wc_AesSetKey(&tmpAes, (byte*)aes->devKey, aes->keylen,
-                                (byte*)aes->reg, AES_ENCRYPTION)) != 0)
+        ret = wc_AesInit(&tmpAes, NULL, INVALID_DEVID);
+        if (ret == 0) {
+            ret = wc_AesSetKey(&tmpAes, (byte*)aes->devKey, aes->keylen,
+                               (byte*)aes->reg, AES_ENCRYPTION);
+            if (ret == 0) {
+                ret = wc_AesEncryptDirect(&tmpAes, (byte*)aes->tmp,
+                                          (const byte*)aes->reg);
+            }
+            wc_AesFree(&tmpAes);
+        }
+        ForceZero(&tmpAes, sizeof(tmpAes));
+        if (ret != 0)
             return ret;
-        if ((ret = wc_AesEncryptDirect(&tmpAes, (byte*)aes->tmp,
-                                       (const byte*)aes->reg)) != 0)
-            return ret;
-        wc_AesFree(&tmpAes);
+
         IncrementAesCounter((byte*)aes->reg);
 
         aes->left = WC_AES_BLOCK_SIZE - (sz % WC_AES_BLOCK_SIZE);

@@ -35,7 +35,7 @@
  * https://github.com/curl/curl/blob/curl-7_88_1/docs/examples/threaded-ssl.c
  */
 
-/* Requires: HAVE_PTHREAD_H */
+/* Requires: HAVE_THREADS_POSIX */
 /* Also requires TLS support to run */
 
 #include <stdio.h>
@@ -73,11 +73,9 @@ static void *pull_one_url(void *p)
   return NULL;
 }
 
-/*
-   int pthread_create(pthread_t *new_thread_ID,
+/* int pthread_create(pthread_t *new_thread_ID,
                       const pthread_attr_t *attr,
-                      void * (*start_func)(void *), void *arg);
-*/
+                      void * (*start_func)(void *), void *arg); */
 
 int main(void)
 {

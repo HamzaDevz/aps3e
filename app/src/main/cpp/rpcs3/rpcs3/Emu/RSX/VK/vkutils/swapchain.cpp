@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "swapchain.h"
+#include "Emu/system_config.h"
 
 namespace vk
 {
@@ -105,12 +106,12 @@ namespace vk
 	swapchain_WSI::swapchain_WSI(vk::physical_device& gpu, u32 present_queue, u32 graphics_queue, u32 transfer_queue, VkFormat format, VkSurfaceKHR surface, VkColorSpaceKHR color_space, bool force_wm_reporting_off)
 		: WSI_swapchain_base(gpu, present_queue, graphics_queue, transfer_queue, format)
 	{
-		/*_vkCreateSwapchainKHR = reinterpret_cast<PFN_vkCreateSwapchainKHR>(vkGetDeviceProcAddr(dev, "vkCreateSwapchainKHR"));
-		_vkDestroySwapchainKHR = reinterpret_cast<PFN_vkDestroySwapchainKHR>(vkGetDeviceProcAddr(dev, "vkDestroySwapchainKHR"));
-		_vkGetSwapchainImagesKHR = reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(vkGetDeviceProcAddr(dev, "vkGetSwapchainImagesKHR"));
-		_vkAcquireNextImageKHR = reinterpret_cast<PFN_vkAcquireNextImageKHR>(vkGetDeviceProcAddr(dev, "vkAcquireNextImageKHR"));
-		_vkQueuePresentKHR = reinterpret_cast<PFN_vkQueuePresentKHR>(vkGetDeviceProcAddr(dev, "vkQueuePresentKHR"));
-*/
+		_vkCreateSwapchainKHR = reinterpret_cast<PFN_vkCreateSwapchainKHR>(_vkGetDeviceProcAddr(dev, "vkCreateSwapchainKHR"));
+		_vkDestroySwapchainKHR = reinterpret_cast<PFN_vkDestroySwapchainKHR>(_vkGetDeviceProcAddr(dev, "vkDestroySwapchainKHR"));
+		_vkGetSwapchainImagesKHR = reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(_vkGetDeviceProcAddr(dev, "vkGetSwapchainImagesKHR"));
+		_vkAcquireNextImageKHR = reinterpret_cast<PFN_vkAcquireNextImageKHR>(_vkGetDeviceProcAddr(dev, "vkAcquireNextImageKHR"));
+		_vkQueuePresentKHR = reinterpret_cast<PFN_vkQueuePresentKHR>(_vkGetDeviceProcAddr(dev, "vkQueuePresentKHR"));
+
 		m_surface = surface;
 		m_color_space = color_space;
 
@@ -132,21 +133,27 @@ namespace vk
 			}
 		}
 	}
-    void swapchain_WSI::create(display_handle_t& handle) {
-        if(m_vk_swapchain){
-            _vkDestroySwapchainKHR(dev, m_vk_swapchain, nullptr);
-            m_vk_swapchain = VK_NULL_HANDLE;
-        }
-        if(!swapchain_images.empty()){
-            swapchain_images.clear();
-        }
-        WSI_config surface_config
-                {
-                        .supports_automatic_wm_reports = true
-                };
-        m_surface= make_WSI_surface(dev.gpu(),handle, &surface_config);
-    }
-	void swapchain_WSI::destroy(bool)
+	// Recreate the android surface after it was lost
+	void swapchain_WSI::create(display_handle_t& handle)
+	{
+		if (m_vk_swapchain)
+		{
+			_vkDestroySwapchainKHR(dev, m_vk_swapchain, nullptr);
+			m_vk_swapchain = VK_NULL_HANDLE;
+		}
+		if (!swapchain_images.empty())
+		{
+			swapchain_images.clear();
+		}
+		WSI_config surface_config
+		{
+			.supports_automatic_wm_reports = true
+		};
+		m_surface = make_WSI_surface(dev.gpu(), handle, &surface_config);
+	}
+
+
+	void swapchain_WSI::destroy(bool /*full*/)
 	{
 		if (VkDevice pdev = dev)
 		{
@@ -186,7 +193,7 @@ namespace vk
 				pSurfaceInfo.pNext = &full_screen_exclusive_win32_info;
 
 				auto getPhysicalDeviceSurfaceCapabilities2KHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR>(
-					vkGetInstanceProcAddr(dev.gpu(), "vkGetPhysicalDeviceSurfaceCapabilities2KHR")
+					_vkGetInstanceProcAddr(dev.gpu(), "vkGetPhysicalDeviceSurfaceCapabilities2KHR")
 					);
 				ensure(getPhysicalDeviceSurfaceCapabilities2KHR);
 				CHECK_RESULT(getPhysicalDeviceSurfaceCapabilities2KHR(dev.gpu(), &pSurfaceInfo, &pSurfaceCapabilities));
@@ -214,15 +221,9 @@ namespace vk
 
 		VkSwapchainKHR old_swapchain = m_vk_swapchain;
 		vk::physical_device& gpu = const_cast<vk::physical_device&>(dev.gpu());
-#if __ANDROID__
-        constexpr bool should_specify_exclusive_full_screen_mode= false;
-        VkSurfaceCapabilitiesKHR surface_descriptors = {};
-        if(_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev.gpu(), m_surface, &surface_descriptors)!= VK_SUCCESS){
-            return false;
-        }
-#else
+
 		auto [surface_descriptors, should_specify_exclusive_full_screen_mode] = init_surface_capabilities();
-#endif
+
 		if (surface_descriptors.maxImageExtent.width < m_width ||
 			surface_descriptors.maxImageExtent.height < m_height)
 		{

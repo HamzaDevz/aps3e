@@ -67,20 +67,18 @@
 #endif
 
 #ifdef _MSC_VER
-#define gettimeofday(a, b) my_gettimeofday(a, b)
-static int my_gettimeofday(struct timeval *tp, void *tzp)
+static int gettimeofday(struct timeval *tp, void *tzp)
 {
   (void)tzp;
   if(tp) {
-/* Offset between 1601-01-01 and 1970-01-01 in 100 nanosec units */
-#define WIN32_FT_OFFSET 116444736000000000
     union {
       CURL_TYPEOF_CURL_OFF_T ns100; /* time since 1 Jan 1601 in 100ns units */
       FILETIME ft;
-    } _now;
-    GetSystemTimeAsFileTime(&_now.ft);
-    tp->tv_usec = (long)((_now.ns100 / 10) % 1000000);
-    tp->tv_sec = (long)((_now.ns100 - WIN32_FT_OFFSET) / 10000000);
+    } now;
+    GetSystemTimeAsFileTime(&now.ft);
+    tp->tv_usec = (long)((now.ns100 / 10) % 1000000);
+    /* subtract offset between 1601-01-01 and 1970-01-01 in 100ns units */
+    tp->tv_sec = (long)((now.ns100 - 116444736000000000) / 10000000);
   }
   return 0;
 }
@@ -205,7 +203,7 @@ static size_t read_cb(char *ptr, size_t size, size_t nmemb, void *userp)
 
 static int setup(struct input *t, int num, const char *upload)
 {
-  char url[256];
+  char upload_url[256];
   char filename[128];
   struct stat file_info;
   curl_off_t uploadsize;
@@ -217,23 +215,24 @@ static int setup(struct input *t, int num, const char *upload)
   snprintf(filename, sizeof(filename), "dl-%d", num);
   t->out = fopen(filename, "wb");
   if(!t->out) {
-    fprintf(stderr, "error: could not open file %s for writing: %s\n",
-            upload, strerror(errno));
+    fprintf(stderr, "error: could not open file %s for writing: %s\n", upload,
+            strerror(errno));
     return 1;
   }
 
-  snprintf(url, sizeof(url), "https://localhost:8443/upload-%d", num);
+  snprintf(upload_url, sizeof(upload_url), "https://localhost:8443/upload-%d",
+           num);
 
   t->in = fopen(upload, "rb");
   if(!t->in) {
-    fprintf(stderr, "error: could not open file %s for reading: %s\n",
-            upload, strerror(errno));
+    fprintf(stderr, "error: could not open file %s for reading: %s\n", upload,
+            strerror(errno));
     fclose(t->out);
     t->out = NULL;
     return 1;
   }
 
-  if(fstat(fileno(t->in), &file_info) != 0) {
+  if(fstat(fileno(t->in), &file_info)) {
     fprintf(stderr, "error: could not stat file %s: %s\n", upload,
             strerror(errno));
     fclose(t->out);
@@ -257,7 +256,7 @@ static int setup(struct input *t, int num, const char *upload)
     curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, uploadsize);
 
     /* send in the URL to store the upload as */
-    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_URL, upload_url);
 
     /* upload please */
     curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
@@ -274,7 +273,7 @@ static int setup(struct input *t, int num, const char *upload)
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
-#if (CURLPIPE_MULTIPLEX > 0)
+#if CURLPIPE_MULTIPLEX > 0
     /* wait for pipe connection to confirm */
     curl_easy_setopt(curl, CURLOPT_PIPEWAIT, 1L);
 #endif
@@ -285,7 +284,7 @@ static int setup(struct input *t, int num, const char *upload)
 /*
  * Upload all files over HTTP/2, using the same physical connection!
  */
-int main(int argc, const char **argv)
+int main(int argc, const char *argv[])
 {
   CURLcode result;
   struct input *trans;

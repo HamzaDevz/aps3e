@@ -23,7 +23,9 @@
  ***************************************************************************/
 #include "first.h"
 
-static const char *TEST_DATA_STRING = "Test data";
+#include "testtrace.h"
+
+static const char TEST_DATA_STRING[] = "Test data";
 static int cb_count = 0;
 
 static int resolver_alloc_cb_fail(void *resolver_state, void *reserved,
@@ -61,6 +63,9 @@ static CURLcode test_lib655(const char *URL)
   CURL *curl;
   CURLcode result = CURLE_OK;
 
+  debug_config.nohex = TRUE;
+  debug_config.tracetime = TRUE;
+
   if(curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
     curl_mfprintf(stderr, "curl_global_init() failed\n");
     return TEST_ERR_MAJOR_BAD;
@@ -73,26 +78,32 @@ static CURLcode test_lib655(const char *URL)
   }
 
   /* Set the URL that is about to receive our first request. */
-  test_setopt(curl, CURLOPT_URL, URL);
+  easy_setopt(curl, CURLOPT_URL, URL);
+  easy_setopt(curl, CURLOPT_DEBUGDATA, &debug_config);
+  easy_setopt(curl, CURLOPT_DEBUGFUNCTION, libtest_debug_cb);
+  easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
-  test_setopt(curl, CURLOPT_RESOLVER_START_DATA, TEST_DATA_STRING);
-  test_setopt(curl, CURLOPT_RESOLVER_START_FUNCTION, resolver_alloc_cb_fail);
+  easy_setopt(curl, CURLOPT_RESOLVER_START_DATA, TEST_DATA_STRING);
+  easy_setopt(curl, CURLOPT_RESOLVER_START_FUNCTION, resolver_alloc_cb_fail);
 
   /* this should fail */
   result = curl_easy_perform(curl);
   if(result != CURLE_ABORTED_BY_CALLBACK) {
     curl_mfprintf(stderr, "curl_easy_perform should have returned "
                   "CURLE_ABORTED_BY_CALLBACK but instead returned error %d\n",
-                  result);
+                  (int)result);
     if(result == CURLE_OK)
       result = TEST_ERR_FAILURE;
     goto test_cleanup;
   }
 
   /* Set the URL that receives our second request. */
-  test_setopt(curl, CURLOPT_URL, libtest_arg2);
+  easy_setopt(curl, CURLOPT_URL, libtest_arg2);
+  easy_setopt(curl, CURLOPT_DEBUGDATA, &debug_config);
+  easy_setopt(curl, CURLOPT_DEBUGFUNCTION, libtest_debug_cb);
+  easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
-  test_setopt(curl, CURLOPT_RESOLVER_START_FUNCTION, resolver_alloc_cb_pass);
+  easy_setopt(curl, CURLOPT_RESOLVER_START_FUNCTION, resolver_alloc_cb_pass);
 
   /* this should succeed */
   result = curl_easy_perform(curl);

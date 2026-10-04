@@ -102,6 +102,16 @@ Host: is not sent at all over the wire.
 Tells libcurl the upload is to be done using this chunked encoding instead of
 providing the Content-Length: field in the request.
 
+## Authorization:
+
+Custom `Authorization:` headers may interfere with and cause unintended
+side-effects when combined with authentication set with CURLOPT_HTTPAUTH(3).
+
+## Proxy-Authorization:
+
+Custom `Proxy-Authorization:` headers may interfere with and cause unintended
+side-effects when combined with authentication set with CURLOPT_PROXYAUTH(3).
+
 # SPECIFIC MIME HEADERS
 
 When used to build a MIME email for IMAP or SMTP, the following document-level
@@ -169,6 +179,7 @@ int main(void)
   struct curl_slist *list = NULL;
 
   if(curl) {
+    CURLcode result;
     curl_easy_setopt(curl, CURLOPT_URL, "https://example.com");
 
     /* add this header */
@@ -182,9 +193,10 @@ int main(void)
 
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
 
-    curl_easy_perform(curl);
+    result = curl_easy_perform(curl);
 
     curl_slist_free_all(list); /* free the list */
+    curl_easy_cleanup(curl);
   }
 }
 ~~~

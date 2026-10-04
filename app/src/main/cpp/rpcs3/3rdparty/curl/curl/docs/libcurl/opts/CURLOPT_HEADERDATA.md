@@ -51,7 +51,7 @@ NULL
 ~~~c
 struct my_info {
   int shoesize;
-  char *secret;
+  const char *secret;
 };
 
 static size_t header_callback(char *buffer, size_t size,
@@ -68,6 +68,7 @@ int main(void)
 {
   CURL *curl = curl_easy_init();
   if(curl) {
+    CURLcode result;
     struct my_info my = { 10, "the cookies are in the cupboard" };
     curl_easy_setopt(curl, CURLOPT_URL, "https://example.com");
 
@@ -76,7 +77,9 @@ int main(void)
     /* pass in custom data to the callback */
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, &my);
 
-    curl_easy_perform(curl);
+    result = curl_easy_perform(curl);
+
+    curl_easy_cleanup(curl);
   }
 }
 ~~~

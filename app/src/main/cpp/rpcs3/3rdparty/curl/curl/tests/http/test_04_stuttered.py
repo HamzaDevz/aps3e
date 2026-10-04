@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 #***************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
@@ -25,11 +23,10 @@
 ###########################################################################
 #
 import logging
-from typing import Tuple, List, Dict
+from typing import Dict, List, Tuple
+
 import pytest
-
-from testenv import Env, CurlClient
-
+from testenv import CurlClient, Env
 
 log = logging.getLogger(__name__)
 

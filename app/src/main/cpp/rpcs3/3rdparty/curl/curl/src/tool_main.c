@@ -73,12 +73,11 @@ int _CRT_glob = 0;
 /* if we build a static library for unit tests, there is no main() function */
 #ifndef UNITTESTS
 
-#if defined(HAVE_PIPE) && defined(HAVE_FCNTL)
 /*
  * Ensure that file descriptors 0, 1 and 2 (stdin, stdout, stderr) are
  * open before starting to run. Otherwise, the first three network
  * sockets opened by curl could be used for input sources, downloaded data
- * or error logs as they will effectively be stdin, stdout and/or stderr.
+ * or error logs as they are effectively stdin, stdout and/or stderr.
  *
  * fcntl's F_GETFD instruction returns -1 if the file descriptor is closed,
  * otherwise it returns "the file descriptor flags (which typically can only
@@ -86,17 +85,27 @@ int _CRT_glob = 0;
  */
 static int main_checkfds(void)
 {
-  int fd[2];
-  while((fcntl(STDIN_FILENO, F_GETFD) == -1) ||
-        (fcntl(STDOUT_FILENO, F_GETFD) == -1) ||
-        (fcntl(STDERR_FILENO, F_GETFD) == -1))
-    if(pipe(fd))
+#if defined(HAVE_FCNTL) && defined(HAVE_PIPE)
+  const char * const devnull = "/dev/null";
+  int fd;
+  while((fcntl(STDIN_FILENO, F_GETFD) == -1)) {
+    fd = curlx_open(devnull, O_RDONLY);
+    if(fd < 0)
       return 1;
+  }
+  while((fcntl(STDOUT_FILENO, F_GETFD) == -1)) {
+    fd = curlx_open(devnull, O_WRONLY);
+    if(fd < 0)
+      return 1;
+  }
+  while((fcntl(STDERR_FILENO, F_GETFD) == -1)) {
+    fd = curlx_open(devnull, O_WRONLY);
+    if(fd < 0)
+      return 1;
+  }
+#endif /* HAVE_FCNTL && HAVE_PIPE */
   return 0;
 }
-#else
-#define main_checkfds() 0
-#endif
 
 #ifdef CURL_MEMDEBUG
 static void memory_tracking_init(void)
@@ -111,7 +120,7 @@ static void memory_tracking_init(void)
     curl_free(env);
     curl_dbg_memdebug(fname);
     /* this weird stuff here is to make curl_free() get called before
-       curl_dbg_memdebug() as otherwise memory tracking will log a curlx_free()
+       curl_dbg_memdebug() as otherwise memory tracking logs a curlx_free()
        without an alloc! */
   }
   /* if CURL_MEMLIMIT is set, this enables fail-on-alloc-number-N feature */
@@ -129,10 +138,10 @@ static void memory_tracking_init(void)
 #endif
 
 /*
-** curl tool main function.
-*/
+ * curl tool main function.
+ */
 #ifdef _UNICODE
-#if defined(__GNUC__) || defined(__clang__)
+#ifdef CURL_HAVE_DIAG
 /* GCC does not know about wmain() */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-prototypes"
@@ -150,7 +159,7 @@ int main(int argc, char *argv[])
 #ifdef _WIN32
   /* Undocumented diagnostic option to list the full paths of all loaded
      modules. This is purposely pre-init. */
-  if(argc == 2 && !_tcscmp(argv[1], _T("--dump-module-paths"))) {
+  if(argc == 2 && !_tcscmp(argv[1], _TEXT("--dump-module-paths"))) {
     struct curl_slist *item, *head = GetLoadedModulePaths();
     for(item = head; item; item = item->next)
       curl_mprintf("%s\n", item->data);
@@ -161,7 +170,7 @@ int main(int argc, char *argv[])
   /* win32_init must be called before other init routines. */
   result = win32_init();
   if(result) {
-    errorf("(%d) Windows-specific init failed", result);
+    errorf("(%d) Windows-specific init failed", (int)result);
     return (int)result;
   }
 #endif
@@ -205,7 +214,7 @@ int main(int argc, char *argv[])
 }
 
 #ifdef _UNICODE
-#if defined(__GNUC__) || defined(__clang__)
+#ifdef CURL_HAVE_DIAG
 #pragma GCC diagnostic pop
 #endif
 #endif

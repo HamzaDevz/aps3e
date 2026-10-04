@@ -1,0 +1,57 @@
+name: Build OpenCV
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-opencv:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout OpenCV
+        uses: actions/checkout@main
+        with:
+          repository: opencv/opencv
+          ref: 4.14.0
+
+      - name: Set up CMake build directory
+        run: |
+          mkdir build
+
+      - name: Configure OpenCV with CMake
+        working-directory: build
+        shell: cmd
+        run: |
+          cmake .. -G "Visual Studio 18 2026" -A x64 ^
+          -DBUILD_SHARED_LIBS=ON ^
+          -DBUILD_WITH_STATIC_CRT=ON ^
+          -DBUILD_LIST=core,photo,imgproc ^
+          -DBUILD_opencv_world=ON ^
+          -DBUILD_opencv_core=ON ^
+          -DBUILD_opencv_photo=ON ^
+          -DBUILD_opencv_imgproc=ON ^
+          -DBUILD_opencv_highgui=OFF ^
+          -DBUILD_opencv_imgcodecs=OFF ^
+          -DBUILD_EXAMPLES=OFF ^
+          -DBUILD_TESTS=OFF ^
+          -DBUILD_PERF_TESTS=OFF ^
+          -DBUILD_DOCS=OFF ^
+          -DWITH_IPP=OFF ^
+          -DWITH_TBB=OFF ^
+          -DWITH_OPENCL=OFF ^
+          -DWITH_CUDA=OFF ^
+          -DWITH_MSMF=OFF ^
+          -DWITH_MFX=OFF
+
+      - name: Build DLLs
+        working-directory: build
+        run: cmake --build . --config Release --target INSTALL
+
+      - name: Upload DLLs and libs as artifact
+        uses: actions/upload-artifact@main
+        with:
+          name: OpenCV for Windows (MSVC)
+          path: |
+            build/bin/Release/opencv_world*.dll
+            build/lib/Release/opencv_world*.lib
+            build/install/include

@@ -5,7 +5,7 @@
 
 set -eu
 
-cd "$(dirname "${0}")"/../..
+cd -- "$(dirname "${0}")"/../..
 
 git ls-files -z | xargs -0 -r \
 codespell \
@@ -16,6 +16,9 @@ codespell \
   --skip 'projects/vms/*' \
   --skip 'RELEASE-NOTES' \
   --skip 'scripts/wcurl' \
+  --skip 'tests/unit/unit1625.c' \
+  --skip 'tests/unit/unit1627.c' \
+  --skip 'tests/perf/urlparser.c' \
   --ignore-regex '.*spellchecker:disable-line' \
   --ignore-words '.github/scripts/codespell-ignore.words' \
   --

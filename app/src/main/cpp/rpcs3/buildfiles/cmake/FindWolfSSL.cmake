@@ -1,8 +1,3 @@
 set(WOLFSSL_LIBRARY wolfssl)
-if(ANDROID)
-set(WOLFSSL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../wolfssl)
-else ()
 set(WOLFSSL_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/3rdparty/wolfssl)
-endif ()
-
 set(WOLFSSL_FOUND TRUE)

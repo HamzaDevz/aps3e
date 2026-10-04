@@ -39,7 +39,7 @@ if(WITH_LLVM)
 		# Check on MSVC is needed due to COMPILER_X86, COMPILER_ARM etc. are not set/supported by the MSVC compiler, if used.
 		# Furthermore, the MSVC compiler is not available/supported on Windows AArch64
 		if(WIN32 AND (COMPILER_X86 OR MSVC))
-			set(ITTAPI_GIT_REPOSITORY https://gitee.com/openvinotoolkit-prc/ittapi.git)
+			set(ITTAPI_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 			set(LLVM_USE_INTEL_JITEVENTS ON)
 		endif()
 
@@ -55,12 +55,12 @@ if(WITH_LLVM)
 		endif()
 
 		# LLVM needs to be built out-of-tree
-		add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/llvm-19.1.7/llvm ${CMAKE_CURRENT_BINARY_DIR}/llvm_build EXCLUDE_FROM_ALL)
+		add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/llvm-project-22.1.8.src/llvm ${CMAKE_CURRENT_BINARY_DIR}/llvm_build EXCLUDE_FROM_ALL)
 		set(LLVM_DIR "${CMAKE_CURRENT_BINARY_DIR}/llvm_build/lib/cmake/llvm/")
 
 		set(STATIC_LINK_LLVM ON CACHE BOOL "Link against LLVM statically. This will get set to ON if you build LLVM from the submodule." FORCE)
 
-		find_package(LLVM 19.1 CONFIG)
+		find_package(LLVM 22.1 CONFIG)
 		if(NOT LLVM_FOUND)
 			message(FATAL_ERROR "Couldn't build LLVM from the submodule. You might need to run `git submodule update --init`")
 		endif()

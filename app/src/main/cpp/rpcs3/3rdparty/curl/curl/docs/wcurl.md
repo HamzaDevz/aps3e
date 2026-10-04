@@ -35,8 +35,8 @@ Call **wcurl** with a list of URLs you want to download and **wcurl**
 picks sane defaults.
 
 If you need anything more complex, you can provide any of curl's supported
-parameters via the **--curl-options** option. Beware that you likely should be
-using curl directly if your use case is not covered.
+parameters via the **--curl-options** option. Beware that you likely should
+be using curl directly if your use case is not covered.
 
 By default, **wcurl** does:
 
@@ -127,7 +127,10 @@ Download a file passing the **--progress-bar** and **--http2** flags to curl:
 
 **wcurl --curl-options="--progress-bar --http2" example.com/filename.txt**
 
-* Resume from an interrupted download. The options necessary to resume the download (`--clobber --continue-at -`) must be the **last** options specified in `--curl-options`. Note that the only way to resume interrupted downloads is to allow wcurl to overwrite the destination file:
+Resume from an interrupted download. The options necessary to resume the download
+(`--clobber --continue-at -`) must be the **last** options specified in `--curl-options`.
+Note that the only way to resume interrupted downloads is to allow wcurl to overwrite
+the destination file:
 
 **wcurl --curl-options="--clobber --continue-at -" example.com/filename.txt**
 

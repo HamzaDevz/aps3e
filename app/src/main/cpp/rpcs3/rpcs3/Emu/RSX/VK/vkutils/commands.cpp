@@ -2,6 +2,7 @@
 #include "device.h"
 #include "shared.h"
 #include "sync.h"
+#include "util/logs.hpp"
 
 namespace vk
 {
@@ -64,7 +65,7 @@ namespace vk
 
 		if (m_submit_fence)
 		{
-			//vkDestroyFence(pool->get_owner(), m_submit_fence, nullptr);
+			//_vkDestroyFence(pool->get_owner(), m_submit_fence, nullptr);
 			delete m_submit_fence;
 			m_submit_fence = nullptr;
 		}
@@ -90,7 +91,7 @@ namespace vk
 			wait_for_fence(m_submit_fence);
 			is_pending = false;
 
-			//CHECK_RESULT(vkResetFences(pool->get_owner(), 1, &m_submit_fence));
+			//CHECK_RESULT(_vkResetFences(pool->get_owner(), 1, &m_submit_fence));
 			m_submit_fence->reset();
 			reset();
 		}

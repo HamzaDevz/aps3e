@@ -22,7 +22,6 @@
  *
  ***************************************************************************/
 #include "unitcheck.h"
-
 #include "uint-hash.h"
 
 static void t1616_mydtor(uint32_t id, void *elem)
@@ -57,7 +56,7 @@ static CURLcode test_unit1616(const char *arg)
   uint32_t key2 = 25;
 
   value = curlx_malloc(sizeof(int));
-  abort_unless(value != NULL, "Out of memory");
+  abort_unless(value, "Out of memory");
   *value = 199;
   ok = Curl_uint32_hash_set(&hash, key, value);
   if(!ok)
@@ -67,11 +66,11 @@ static CURLcode test_unit1616(const char *arg)
   abort_unless(v == value, "lookup present entry failed");
   v = Curl_uint32_hash_get(&hash, key2);
   abort_unless(!v, "lookup missing entry failed");
-  Curl_uint32_hash_clear(&hash);
+  uint_hash_clear(&hash);
 
   /* Attempt to add another key/value pair */
   value2 = curlx_malloc(sizeof(int));
-  abort_unless(value2 != NULL, "Out of memory");
+  abort_unless(value2, "Out of memory");
   *value2 = 204;
   ok = Curl_uint32_hash_set(&hash, key2, value2);
   if(!ok)

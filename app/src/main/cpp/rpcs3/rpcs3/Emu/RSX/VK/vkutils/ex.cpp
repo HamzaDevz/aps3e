@@ -30,10 +30,10 @@ namespace vk
 		, view(view.value)
 	{}
 
-    VkDescriptorSubBufferEx::VkDescriptorSubBufferEx(const vk::sub_buffer& view)
-            : resourceId(view.uid())
-            , buffer(view.value)
-    {}
+	VkDescriptorSubBufferEx::VkDescriptorSubBufferEx(const vk::sub_buffer& view)
+		: resourceId(view.uid())
+		, buffer(view.value)
+	{}
 
 	VkDescriptorBufferInfoEx::VkDescriptorBufferInfoEx(const vk::buffer& buffer, u64 offset, u64 range)
 		: VkDescriptorBufferInfo(buffer.value, offset, range)

@@ -226,8 +226,10 @@ static char *c_escape(const char *str, curl_off_t len)
     result = curlx_dyn_addn(&escaped, str, s - str);
 
   if(!result)
-    (void)!curlx_dyn_addn(&escaped, "...", cutoff);
+    result = curlx_dyn_addn(&escaped, "...", cutoff);
 
+  if(result)
+    return NULL;
   return curlx_dyn_ptr(&escaped);
 }
 
@@ -407,6 +409,7 @@ static CURLcode libcurl_generate_mime_part(CURL *curl,
   int submimeno = 0;
   const char *data = NULL;
   const char *filename = part->filename;
+  char *escaped;
 
   /* Parts are linked in reverse order. */
   if(part->prev)
@@ -435,7 +438,9 @@ static CURLcode libcurl_generate_mime_part(CURL *curl,
   case TOOLMIME_DATA:
     data = part->data;
     if(!result) {
-      char *escaped = c_escape(data, ZERO_TERMINATED);
+      escaped = c_escape(data, ZERO_TERMINATED);
+      if(!escaped)
+        return CURLE_OUT_OF_MEMORY;
       result =
         easysrc_addf(&easysrc_code,
                      "curl_mime_data(part%d, \"%s\", CURL_ZERO_TERMINATED);",
@@ -445,8 +450,10 @@ static CURLcode libcurl_generate_mime_part(CURL *curl,
     break;
 
   case TOOLMIME_FILE:
-  case TOOLMIME_FILEDATA: {
-    char *escaped = c_escape(part->data, ZERO_TERMINATED);
+  case TOOLMIME_FILEDATA:
+    escaped = c_escape(part->data, ZERO_TERMINATED);
+    if(!escaped)
+      return CURLE_OUT_OF_MEMORY;
     result =
       easysrc_addf(&easysrc_code,
                    "curl_mime_filedata(part%d, \"%s\");", mimeno, escaped);
@@ -456,7 +463,6 @@ static CURLcode libcurl_generate_mime_part(CURL *curl,
     }
     curlx_free(escaped);
     break;
-  }
 
   case TOOLMIME_STDIN:
     if(!filename)
@@ -476,28 +482,36 @@ static CURLcode libcurl_generate_mime_part(CURL *curl,
   }
 
   if(!result && part->encoder) {
-    char *escaped = c_escape(part->encoder, ZERO_TERMINATED);
+    escaped = c_escape(part->encoder, ZERO_TERMINATED);
+    if(!escaped)
+      return CURLE_OUT_OF_MEMORY;
     result = easysrc_addf(&easysrc_code, "curl_mime_encoder(part%d, \"%s\");",
                           mimeno, escaped);
     curlx_free(escaped);
   }
 
   if(!result && filename) {
-    char *escaped = c_escape(filename, ZERO_TERMINATED);
+    escaped = c_escape(filename, ZERO_TERMINATED);
+    if(!escaped)
+      return CURLE_OUT_OF_MEMORY;
     result = easysrc_addf(&easysrc_code, "curl_mime_filename(part%d, \"%s\");",
                           mimeno, escaped);
     curlx_free(escaped);
   }
 
   if(!result && part->name) {
-    char *escaped = c_escape(part->name, ZERO_TERMINATED);
+    escaped = c_escape(part->name, ZERO_TERMINATED);
+    if(!escaped)
+      return CURLE_OUT_OF_MEMORY;
     result = easysrc_addf(&easysrc_code, "curl_mime_name(part%d, \"%s\");",
                           mimeno, escaped);
     curlx_free(escaped);
   }
 
   if(!result && part->type) {
-    char *escaped = c_escape(part->type, ZERO_TERMINATED);
+    escaped = c_escape(part->type, ZERO_TERMINATED);
+    if(!escaped)
+      return CURLE_OUT_OF_MEMORY;
     result = easysrc_addf(&easysrc_code, "curl_mime_type(part%d, \"%s\");",
                           mimeno, escaped);
     curlx_free(escaped);
@@ -595,23 +609,24 @@ CURLcode tool_setopt_slist(CURL *curl, const char *name, CURLoption tag,
 CURLcode tool_setopt_long(CURL *curl, const char *name, CURLoption tag,
                           long lval)
 {
-  long defval = 0L;
-  const struct NameValue *nv = NULL;
   CURLcode result = CURLE_OK;
   DEBUGASSERT(tag < CURLOPTTYPE_OBJECTPOINT);
 
-  for(nv = setopt_nv_CURLNONZERODEFAULTS; nv->name; nv++) {
-    if(!strcmp(name, nv->name)) {
-      defval = nv->value;
-      break; /* found it */
-    }
-  }
-
   result = curl_easy_setopt(curl, tag, lval);
-  if((lval != defval) && global->libcurl && !result) {
+  if(!result && global->libcurl) {
+    const struct NameValue *nv = NULL;
+    long defval = 0L;
     /* we only use this for real if --libcurl was used */
-    result = easysrc_addf(&easysrc_code, "curl_easy_setopt(curl, %s, %ldL);",
-                          name, lval);
+    for(nv = setopt_nv_CURLNONZERODEFAULTS; nv->name; nv++) {
+      if(!strcmp(name, nv->name)) {
+        defval = nv->value;
+        break; /* found it */
+      }
+    }
+    if(lval != defval) {
+      result = easysrc_addf(&easysrc_code, "curl_easy_setopt(curl, %s, %ldL);",
+                            name, lval);
+    }
   }
   return result;
 }
@@ -666,28 +681,23 @@ CURLcode tool_setopt_ptr(CURL *curl, const char *name, CURLoption tag, ...)
 
 /* setopt wrapper for setting strings */
 CURLcode tool_setopt_str(CURL *curl, struct OperationConfig *config,
-                         const char *name, CURLoption tag, ...)
+                         const char *name, CURLoption tag,
+                         const char *value)
 {
-  char *str;
-  va_list arg;
   CURLcode result;
   DEBUGASSERT(tag >= CURLOPTTYPE_OBJECTPOINT);
   DEBUGASSERT((tag < CURLOPTTYPE_OFF_T) || (tag >= CURLOPTTYPE_BLOB));
   DEBUGASSERT(tag < CURLOPTTYPE_BLOB);
   DEBUGASSERT(tag < CURLOPTTYPE_FUNCTIONPOINT);
 
-  va_start(arg, tag);
-  /* argument is a string */
-  str = va_arg(arg, char *);
-
-  result = curl_easy_setopt(curl, tag, str);
-  if(global->libcurl && str && !result) {
+  result = curl_easy_setopt(curl, tag, value);
+  if(global->libcurl && value && !result) {
     /* we only use this if --libcurl was used */
     curl_off_t len = ZERO_TERMINATED;
     char *escaped;
     if(tag == CURLOPT_POSTFIELDS)
       len = curlx_dyn_len(&config->postdata);
-    escaped = c_escape(str, len);
+    escaped = c_escape(value, len);
     if(escaped) {
       result = easysrc_addf(&easysrc_code,
                             "curl_easy_setopt(curl, %s, \"%s\");",
@@ -698,16 +708,7 @@ CURLcode tool_setopt_str(CURL *curl, struct OperationConfig *config,
       result = CURLE_OUT_OF_MEMORY;
   }
 
-  va_end(arg);
   return result;
 }
 
 #endif /* CURL_DISABLE_LIBCURL_OPTION */
-
-/* return TRUE if the error code is "lethal" */
-bool setopt_bad(CURLcode result)
-{
-  return result &&
-         (result != CURLE_NOT_BUILT_IN) &&
-         (result != CURLE_UNKNOWN_OPTION);
-}

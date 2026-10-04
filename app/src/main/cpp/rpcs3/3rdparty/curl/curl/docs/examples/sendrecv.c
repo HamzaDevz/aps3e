@@ -34,7 +34,7 @@
  * warning: conversion to 'long unsigned int' from 'curl_socket_t' {aka 'int'}
  * may change the sign of the result [-Wsign-conversion]
  */
-#ifdef __GNUC__
+#ifdef __GNUC__  /* keep outside functions and without push/pop for GCC <4.6 */
 #pragma GCC diagnostic ignored "-Wsign-conversion"
 #elif defined(_MSC_VER)
 #pragma warning(disable:4127)  /* conditional expression is constant */
@@ -77,8 +77,8 @@ int main(void)
 {
   CURL *curl;
   /* Minimalistic http request */
-  const char *request = "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n";
-  size_t request_len = strlen(request);
+  static const char request[] = "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n";
+  static const size_t request_len = sizeof(request) - 1;
 
   CURLcode result = curl_global_init(CURL_GLOBAL_ALL);
   if(result != CURLE_OK)
@@ -89,8 +89,7 @@ int main(void)
      supports "natively", you are doing it wrong and you should stop.
 
      This example uses HTTP only to show how to use this API, it does not
-     suggest that writing an application doing this is sensible.
-  */
+     suggest that writing an application doing this is sensible. */
 
   curl = curl_easy_init();
   if(curl) {

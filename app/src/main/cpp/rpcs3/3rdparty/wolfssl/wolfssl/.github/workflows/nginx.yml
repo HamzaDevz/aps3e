@@ -3,8 +3,9 @@ name: nginx Tests
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '*' ]
 
 concurrency:
@@ -19,7 +20,7 @@ env:
 jobs:
   build_wolfssl:
     name: Build wolfSSL
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     # Just to keep it the same as the testing target
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
@@ -43,7 +44,7 @@ jobs:
         run: tar -zcf build-dir.tgz build-dir
 
       - name: Upload built lib
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wolf-install-nginx
           path: build-dir.tgz
@@ -146,14 +147,14 @@ jobs:
               stream_proxy_protocol_ssl.t stream_proxy_ssl_conf_command.t stream_proxy_ssl.t
               stream_proxy_ssl_verify.t
     name: ${{ matrix.ref }}
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 6
     needs: build_wolfssl
     steps:
       - name: Download lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: wolf-install-nginx
 
@@ -175,13 +176,13 @@ jobs:
           cpanm --notest Proc::Find Net::SSLeay@1.94 IO::Socket::SSL@2.090
 
       - name: Checkout wolfssl-nginx
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: wolfssl/wolfssl-nginx
           path: wolfssl-nginx
 
       - name: Checkout nginx
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: nginx/nginx
           path: nginx
@@ -197,7 +198,7 @@ jobs:
         run: patch -p1 < ../wolfssl-nginx/nginx-${{ matrix.ref }}-wolfssl-debug.patch
 
       - name: Checkout nginx-tests
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: nginx/nginx-tests
           path: nginx-tests

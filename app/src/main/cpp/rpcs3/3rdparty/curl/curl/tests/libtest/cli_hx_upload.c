@@ -158,7 +158,7 @@ static int setup_hx_upload(CURL *curl, const char *url, struct transfer_u *t,
   if(use_earlydata)
     curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_EARLYDATA);
 
-  if(!strcmp("MIME", t->method)) {
+  if(t->method && !strcmp("MIME", t->method)) {
     curl_mimepart *part;
     t->mime = curl_mime_init(curl);
     part = curl_mime_addpart(t->mime);
@@ -395,7 +395,7 @@ static CURLcode test_cli_hx_upload(const char *URL)
 
       curl_mfprintf(stderr, "[t-%zu] STARTING\n", t->idx);
       rc = curl_easy_perform(curl);
-      curl_mfprintf(stderr, "[t-%zu] DONE -> %d\n", t->idx, rc);
+      curl_mfprintf(stderr, "[t-%zu] DONE -> %d\n", t->idx, (int)rc);
       t->curl = NULL;
       curl_easy_reset(curl);
     }
@@ -448,7 +448,7 @@ static CURLcode test_cli_hx_upload(const char *URL)
             t->done = 1;
             curl_mfprintf(stderr, "[t-%zu] FINISHED, "
                           "result=%d, response=%ld\n",
-                          t->idx, m->data.result, res_status);
+                          t->idx, (int)m->data.result, res_status);
             if(use_earlydata) {
               curl_off_t sent;
               curl_easy_getinfo(easy, CURLINFO_EARLYDATA_SENT_T, &sent);

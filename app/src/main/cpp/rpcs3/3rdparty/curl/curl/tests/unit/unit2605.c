@@ -78,12 +78,12 @@ static CURLcode test_unit2605(const char *arg)
       curl_off_t start;
       curl_off_t size;
       CURLcode result;
-      curl_mprintf("%u: '%s' (file size: %" FMT_OFF_T ")\n", i, list[i].r,
+      curl_mprintf("%d: '%s' (file size: %" FMT_OFF_T ")\n", i, list[i].r,
                    list[i].filesize);
       result = Curl_ssh_range(curl, list[i].r, list[i].filesize, &start,
                               &size);
       if(result != list[i].result) {
-        curl_mprintf("... returned %d\n", result);
+        curl_mprintf("... returned %d\n", (int)result);
         unitfail++;
       }
       if(!result) {

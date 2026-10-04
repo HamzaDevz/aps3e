@@ -2,14 +2,14 @@ name: hostap and wpa-supplicant Tests
 
 # START OF COMMON SECTION
 on:
-    workflow_dispatch: # Allows people to run it manually if they want but
-                       # disables it from running automatically when broken
-# To restore this to an auto test delete the above workflow_dispatch line and
-# comments and uncomment the below lines for push and pull_request
-#  push:
-#    branches: [ 'master', 'main', 'release/**' ]
-#  pull_request:
-#    branches: [ '*' ]
+  push:
+    branches: [ 'release/**' ]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [ '*' ]
+  # Daily run on master reseeds the shared cache (see save steps below).
+  schedule:
+    - cron: '40 5 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -31,7 +31,7 @@ jobs:
               --enable-wpas-dpp --enable-brainpool --with-eccminsz=192
               --enable-tlsv10 --enable-oldtls
     name: Build wolfSSL
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-22.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 10
@@ -61,7 +61,7 @@ jobs:
         run: tar -zcf build-dir.tgz build-dir
 
       - name: Upload built lib
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.build_id }}
           path: build-dir.tgz
@@ -69,54 +69,73 @@ jobs:
 
   checkout_hostap:
     name: Checkout hostap repo
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-22.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 10
     steps:
       - name: Checking if we have hostap in cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v5
         id: cache
         with:
           path: hostap
           key: hostap-repo
-          lookup-only: true
 
       - name: Checkout hostap
         if: steps.cache.outputs.cache-hit != 'true'
         run: git clone https://w1.fi/hostap.git hostap
 
+      # Only master (the daily schedule) saves, so all PRs share one entry.
+      - name: Save hostap cache
+        if: github.ref == 'refs/heads/master' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: hostap
+          key: hostap-repo
+
+      - name: tar hostap
+        run: tar -zcf hostap.tgz hostap
+
+      - name: Upload hostap repo
+        uses: actions/upload-artifact@v6
+        with:
+          name: hostap-repo
+          path: hostap.tgz
+          retention-days: 1
+
   build_uml_linux:
     name: Build UML (UserMode Linux)
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-22.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 10
     needs: checkout_hostap
     steps:
       - name: Checking if we have kernel in cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v5
         id: cache
         with:
           path: linux/linux
           key: hostap-linux-${{ env.LINUX_REF }}
-          lookup-only: true
 
-      - name: Checking if we have hostap in cache
+      - name: Download hostap repo
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/download-artifact@v7
         with:
-          path: hostap
-          key: hostap-repo
-          fail-on-cache-miss: true
+          name: hostap-repo
+
+      - name: untar hostap
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: tar -xf hostap.tgz
 
       - name: Checkout linux
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: torvalds/linux
           path: linux
           ref: ${{ env.LINUX_REF }}
+          fetch-depth: 1
 
       - name: Compile linux
         if: steps.cache.outputs.cache-hit != 'true'
@@ -124,6 +143,21 @@ jobs:
           cp hostap/tests/hwsim/vm/kernel-config.uml linux/.config
           cd linux
           yes "" | ARCH=um make -j $(nproc)
+
+      # Only master (the daily schedule) saves, so all PRs share one entry.
+      - name: Save kernel cache
+        if: github.ref == 'refs/heads/master' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: linux/linux
+          key: hostap-linux-${{ env.LINUX_REF }}
+
+      - name: Upload kernel binary
+        uses: actions/upload-artifact@v6
+        with:
+          name: uml-linux-kernel
+          path: linux/linux
+          retention-days: 1
 
   hostap_test:
     strategy:
@@ -167,19 +201,20 @@ jobs:
               build_id: hostap-vm-build2
             }
     name: hwsim test
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-22.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 45
     needs: [build_wolfssl, build_uml_linux, checkout_hostap]
     steps:
-      - name: Checking if we have kernel in cache
-        uses: actions/cache/restore@v4
-        id: cache
+      - name: Download kernel binary
+        uses: actions/download-artifact@v7
         with:
-          path: linux/linux
-          key: hostap-linux-${{ env.LINUX_REF }}
-          fail-on-cache-miss: true
+          name: uml-linux-kernel
+          path: linux
+
+      - name: Restore kernel binary executable bit
+        run: chmod +x linux/linux
 
         # No way to view the full strategy in the browser (really weird)
       - name: Print strategy
@@ -198,12 +233,12 @@ jobs:
           echo Our job run ID is $SHA_SUM
 
       - name: Checkout wolfSSL
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: wolfssl
 
       - name: Download lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ matrix.config.build_id }}
 
@@ -211,44 +246,34 @@ jobs:
         run: tar -xf build-dir.tgz
 
       - name: Install dependencies
-        run: |
-          # Don't prompt for anything
-          export DEBIAN_FRONTEND=noninteractive
-          sudo apt-get update
-          # hostap dependencies
-          sudo apt-get install -y libpcap0.8 libpcap-dev curl libcurl4-openssl-dev \
-            libnl-3-dev binutils-dev libssl-dev libiberty-dev libnl-genl-3-dev \
-            libnl-route-3-dev libdbus-1-dev bridge-utils tshark python3-pycryptodome
-          sudo pip install pycryptodome
-
-      - name: Checking if we have hostap in cache
-        uses: actions/cache/restore@v4
+        uses: ./wolfssl/.github/actions/install-apt-deps
         with:
-          path: hostap
-          key: hostap-repo
-          fail-on-cache-miss: true
+          packages: libpcap0.8 libpcap-dev curl libcurl4-openssl-dev libnl-3-dev binutils-dev libssl-dev libiberty-dev libnl-genl-3-dev libnl-route-3-dev libdbus-1-dev bridge-utils tshark python3-pycryptodome
+          ghcr-debs-tag: ubuntu-22.04-full
+
+      - name: Install pip dependencies
+        run: sudo pip install pycryptodome
+
+      - name: Download hostap repo
+        uses: actions/download-artifact@v7
+        with:
+          name: hostap-repo
+
+      - name: untar hostap
+        run: tar -xf hostap.tgz
 
       - name: Checkout correct ref
         working-directory: hostap
         run: git checkout ${{ matrix.config.hostap_ref }}
 
-      - name: Update certs
-        working-directory: hostap/tests/hwsim/auth_serv
-        run: |
-          ./update.sh
-          ./sha512-generate.sh
-          # Force regeneration of rsa3072-ca.key to get rsa3072-generate.sh to
-          # correctly update all the certs
-          rm rsa3072-ca.key
-          ./rsa3072-generate.sh
-
       - if: ${{ matrix.config.osp_ref }}
         name: Checkout OSP
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: wolfssl/osp
           path: osp
           ref: ${{ matrix.config.osp_ref }}
+          fetch-depth: 1
 
       - if: ${{ matrix.config.osp_ref }}
         name: Apply patch files
@@ -258,6 +283,20 @@ jobs:
           do
             patch -p1 < $f
           done
+
+      - name: Update certs
+        working-directory: hostap/tests/hwsim/auth_serv
+        run: |
+          mkdir -p rootCA/newcerts
+          ./update.sh
+          ./ec-generate.sh
+          ./ec2-generate.sh
+          ./sha512-generate.sh
+          # Force regeneration of rsa3072-ca.key to get rsa3072-generate.sh to
+          # correctly update all the certs
+          rm rsa3072-ca.key
+          ./rsa3072-generate.sh
+          ./ica-generate.sh
 
       - name: Apply extra patches
         working-directory: hostap
@@ -322,18 +361,49 @@ jobs:
             KVMARGS="-cpu host"
           EOF
           git config --global --add safe.directory $GITHUB_WORKSPACE/hostap
+          # parallel-vm.py exits non-zero whenever any test failed on its first
+          # attempt, even if hostap's own internal retry recovered. Treat
+          # "All failed cases passed on retry" as success so we don't churn the
+          # whole VM batch over a flaky test that already passed on retry.
+          run_hwsim() {
+            local log rc=0
+            log=$(mktemp)
+            ./vm/parallel-vm.py ${{ env.hostap_debug_flags }} --nocurses "$@" 2>&1 | tee "$log"
+            rc=${PIPESTATUS[0]}
+            if [ "$rc" -ne 0 ] && grep -q "All failed cases passed on retry" "$log"; then
+              echo "Treating run as success: hostap's internal retry recovered all failures"
+              rc=0
+            fi
+            rm -f "$log"
+            return $rc
+          }
           # Run tests in increments of 200 to not stall out the parallel-vm script
           while mapfile -t -n 200 ary && ((${#ary[@]})); do
             TESTS=$(printf '%s\n' "${ary[@]}" | tr '\n' ' ')
             HWSIM_RES=0 # Not set when command succeeds
-            ./vm/parallel-vm.py ${{ env.hostap_debug_flags }} --nocurses $(nproc) $TESTS  || HWSIM_RES=$?
+            run_hwsim $(nproc) $TESTS || HWSIM_RES=$?
+            # Retry failing tests up to 2 times to mitigate flakiness in the
+            # upstream hostap tests themselves.
+            for i in 1 2; do
+              if [ "$HWSIM_RES" -ne "0" ]; then
+                # Let's re-run the failing tests. We gather the failed tests from the log file.
+                # `|| true` keeps the step alive under `-eo pipefail` if grep finds no matches.
+                FAILED_TESTS=$(grep 'failed tests' /tmp/hwsim-test-logs/*-parallel.log 2>/dev/null | sed 's/failed tests: //' | tr ' ' '\n' | sort | uniq | tr '\n' ' ' || true)
+                if [ -z "$FAILED_TESTS" ]; then
+                  echo "Could not determine failed tests from logs, skipping retry"
+                  break
+                fi
+                printf 'failed tests (retry %d): %s\n' "$i" "$FAILED_TESTS"
+                rm -rf /tmp/hwsim-test-logs
+                HWSIM_RES=0
+                run_hwsim $(nproc) $FAILED_TESTS || HWSIM_RES=$?
+              fi
+            done
             if [ "$HWSIM_RES" -ne "0" ]; then
-              # Let's re-run the failing tests. We gather the failed tests from the log file.
-              FAILED_TESTS=$(grep 'failed tests' /tmp/hwsim-test-logs/*-parallel.log | sed 's/failed tests: //' | tr ' ' '\n' | sort | uniq | tr '\n' ' ')
-              printf 'failed tests: %s\n' "$FAILED_TESTS"
-              ./vm/parallel-vm.py ${{ env.hostap_debug_flags }} --nocurses $(nproc) $FAILED_TESTS
+              echo "Tests still failing after retries"
+              exit 1
             fi
-            rm -r /tmp/hwsim-test-logs
+            rm -rf /tmp/hwsim-test-logs
           done < $GITHUB_WORKSPACE/wolfssl/.github/workflows/hostap-files/configs/${{ matrix.config.hostap_ref }}/tests
 
       - name: show errors
@@ -351,7 +421,7 @@ jobs:
       #
       #- name: Upload failure logs
       #  if: ${{ failure() && steps.testing.outcome == 'failure' }}
-      #  uses: actions/upload-artifact@v4
+      #  uses: actions/upload-artifact@v6
       #  with:
       #    name: hostap-logs-${{ env.our_job_run_id }}
       #    path: hostap/tests/hwsim/logs.zip

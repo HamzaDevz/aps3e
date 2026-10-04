@@ -29,9 +29,6 @@
  * Macros used in operate()
  */
 
-/* return TRUE if the error code is "lethal" */
-bool setopt_bad(CURLcode result);
-
 #ifndef CURL_DISABLE_LIBCURL_OPTION
 
 /* Associate symbolic names with option values */
@@ -78,7 +75,7 @@ extern const struct NameValueUnsigned setopt_nv_CURLHSTS[];
 /* Intercept setopt calls for --libcurl */
 
 CURLcode tool_setopt_enum(CURL *curl, const char *name, CURLoption tag,
-                          const struct NameValue *nv, long lval);
+                          const struct NameValue *nvlist, long lval);
 CURLcode tool_setopt_SSLVERSION(CURL *curl, const char *name, CURLoption tag,
                                 long lval);
 CURLcode tool_setopt_flags(CURL *curl, struct OperationConfig *config,
@@ -86,7 +83,8 @@ CURLcode tool_setopt_flags(CURL *curl, struct OperationConfig *config,
                            const struct NameValue *nv, long lval);
 CURLcode tool_setopt_bitmask(CURL *curl,
                              const char *name, CURLoption tag,
-                             const struct NameValueUnsigned *nv, long lval);
+                             const struct NameValueUnsigned *nvlist,
+                             long lval);
 CURLcode tool_setopt_mimepost(CURL *curl, struct OperationConfig *config,
                               const char *name, CURLoption tag,
                               curl_mime *mimepost);
@@ -98,7 +96,7 @@ CURLcode tool_setopt_offt(CURL *curl, const char *name, CURLoption tag,
                           curl_off_t lval);
 CURLcode tool_setopt_str(CURL *curl, struct OperationConfig *config,
                          const char *name, CURLoption tag,
-                         ...) WARN_UNUSED_RESULT;
+                         const char *value) WARN_UNUSED_RESULT;
 CURLcode tool_setopt_ptr(CURL *curl, const char *name, CURLoption tag, ...);
 
 #define my_setopt_long(x, y, z)       tool_setopt_long(x, #y, y, z)

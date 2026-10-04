@@ -44,17 +44,17 @@ BEGIN {
     );
 }
 
-use Memoize;
+use Memoize qw(memoize flush_cache);
 
 my @xml;      # test data file contents
 my $xmlfile;  # test data filename
 
-my $warning=0;
-my $trace=0;
+my $warning = 0;
+my $trace = 0;
 
 # Normalize the part function arguments for proper caching. This includes the
 # filename in the arguments since that is an implied parameter that affects the
-# return value.  Any error messages will only be displayed the first time, but
+# return value.  Any error messages are only displayed the first time, but
 # those are disabled by default anyway, so should never been seen outside
 # development.
 sub normalize_part {
@@ -62,25 +62,16 @@ sub normalize_part {
     return join("\t", @_);
 }
 
-sub decode_hex {
-    my $s = $_;
-    # remove everything not hex
-    $s =~ s/[^A-Fa-f0-9]//g;
-    # encode everything
-    $s =~ s/([a-fA-F0-9][a-fA-F0-9])/chr(hex($1))/eg;
-    return $s;
-}
-
 sub testcaseattr {
     my %hash;
     for(@xml) {
         if(($_ =~ /^ *\<testcase ([^>]*)/)) {
-            my $attr=$1;
+            my $attr = $1;
             while($attr =~ s/ *([^=]*)= *(\"([^\"]*)\"|\'([^\']*)\')//) {
-                my ($var, $cont)=($1, $2);
+                my ($var, $cont) = ($1, $2);
                 $cont =~ s/^\"(.*)\"$/$1/;
                 $cont =~ s/^\'(.*)\'$/$1/;
-                $hash{$var}=$cont;
+                $hash{$var} = $cont;
             }
         }
     }
@@ -91,10 +82,10 @@ sub getpartattr {
     # if $part is undefined (ie only one argument) then
     # return the attributes of the section
 
-    my ($section, $part)=@_;
+    my ($section, $part) = @_;
 
     my %hash;
-    my $inside=0;
+    my $inside = 0;
 
   # print "Section: $section, part: $part\n";
 
@@ -107,13 +98,13 @@ sub getpartattr {
                               !(defined($part)))
              ) {
             $inside++;
-            my $attr=$1;
+            my $attr = $1;
 
             while($attr =~ s/ *([^=]*)= *(\"([^\"]*)\"|\'([^\']*)\')//) {
-                my ($var, $cont)=($1, $2);
+                my ($var, $cont) = ($1, $2);
                 $cont =~ s/^\"(.*)\"$/$1/;
                 $cont =~ s/^\'(.*)\'$/$1/;
-                $hash{$var}=$cont;
+                $hash{$var} = $cont;
             }
             last;
         }
@@ -130,11 +121,10 @@ sub getpartattr {
 memoize('getpartattr', NORMALIZER => 'normalize_part');  # cache each result
 
 sub getpart {
-    my ($section, $part)=@_;
+    my ($section, $part) = @_;
 
     my @this;
-    my $inside=0;
-    my $hex=0;
+    my $inside = 0;
     my $line;
 
     for(@xml) {
@@ -145,10 +135,6 @@ sub getpart {
         elsif(($inside >= 1) && ($_ =~ /^ *\<$part[ \>]/)) {
             if($inside > 1) {
                 push @this, $_;
-            }
-            elsif($_ =~ /$part [^>]*hex=/) {
-                # attempt to detect a hex-encoded part
-                $hex=1;
             }
             $inside++;
         }
@@ -168,13 +154,6 @@ sub getpart {
             }
             if($warning && !@this) {
                 print STDERR "*** getpart.pm: $section/$part returned empty!\n";
-            }
-            if($hex) {
-                # decode the whole array before returning it!
-                for(@this) {
-                    my $decoded = decode_hex($_);
-                    $_ = $decoded;
-                }
             }
             return @this;
         }
@@ -197,7 +176,7 @@ sub getpart {
 memoize('getpart', NORMALIZER => 'normalize_part');  # cache each result
 
 sub partexists {
-    my ($section, $part)=@_;
+    my ($section, $part) = @_;
 
     my $inside = 0;
 
@@ -216,13 +195,13 @@ sub partexists {
 }
 
 # The code currently never calls this more than once per part per file, so
-# caching a result that will never be used again just slows things down.
+# caching a result that is never used again only slows things down.
 # memoize('partexists', NORMALIZER => 'normalize_part');  # cache each result
 
 sub loadtest {
-    my ($file, $original)=@_;
+    my ($file, $original, $force) = @_;
 
-    if(defined $xmlfile && $file eq $xmlfile) {
+    if(!$force && defined $xmlfile && $file eq $xmlfile) {
         # This test is already loaded
         return
     }
@@ -230,7 +209,12 @@ sub loadtest {
     undef @xml;
     $xmlfile = "";
 
-    if(open(my $xmlh, "<", "$file")) {
+    # flush results cached from an earlier load, the file may have been
+    # regenerated since with new variable substitutions
+    flush_cache('getpart');
+    flush_cache('getpartattr');
+
+    if(open(my $xmlh, "<", $file)) {
         if($original) {
             binmode $xmlh, ':crlf';
         }
@@ -309,9 +293,9 @@ sub checktest {
 
 # write the test to the given file
 sub savetest {
-    my ($file)=@_;
+    my ($file) = @_;
 
-    if(open(my $xmlh, ">", "$file")) {
+    if(open(my $xmlh, ">", $file)) {
         binmode $xmlh; # for crapage systems, use binary
         for(@xml) {
             print $xmlh $_;
@@ -349,7 +333,7 @@ sub striparray {
 # pass array *REFERENCES* !
 #
 sub compareparts {
-    my ($firstref, $secondref)=@_;
+    my ($firstref, $secondref) = @_;
 
     # we cannot compare arrays index per index since with data chunks,
     # they may not be "evenly" distributed
@@ -405,24 +389,24 @@ sub compareparts {
 # Write a given array to the specified file
 #
 sub writearray {
-    my ($filename, $arrayref)=@_;
+    my ($filename, $arrayref) = @_;
 
-    open(my $temp, ">", "$filename") || die "Failure writing file";
-    binmode($temp,":raw");  # Cygwin fix
+    open(my $temp, ">", $filename) or die "Failure writing file";
+    binmode($temp, ":raw");  # Cygwin fix
     for(@$arrayref) {
         print $temp $_;
     }
-    close($temp) || die "Failure writing file";
+    close($temp) or die "Failure writing file";
 }
 
 #
 # Load a specified file and return it as an array
 #
 sub loadarray {
-    my ($filename)=@_;
+    my ($filename) = @_;
     my @array;
 
-    if(open(my $temp, "<", "$filename")) {
+    if(open(my $temp, "<", $filename)) {
         while(<$temp>) {
             push @array, $_;
         }

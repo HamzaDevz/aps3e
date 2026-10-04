@@ -23,10 +23,6 @@
  ***************************************************************************/
 #include "first.h"
 
-#ifdef USE_THREADS_POSIX
-#include <pthread.h>
-#endif
-
 #include "curl_threads.h"
 
 #define THREAD_SIZE     16
@@ -66,7 +62,7 @@ static size_t write_memory_callback(char *contents, size_t size,
   return realsize;
 }
 
-#if defined(USE_THREADS_POSIX) || defined(USE_THREADS_WIN32)
+#ifdef USE_THREADS
 static CURL_THREAD_RETURN_T CURL_STDCALL test_thread(void *ptr)
 #else
 static unsigned int test_thread(void *ptr)
@@ -77,8 +73,8 @@ static unsigned int test_thread(void *ptr)
 
   int i;
 
-  /* Loop the transfer and cleanup the handle properly every lap. This will
-     still reuse ssl session since the pool is in the shared object! */
+  /* Loop the transfer and cleanup the handle properly every lap. This
+     still reuses SSL session since the pool is in the shared object. */
   for(i = 0; i < PER_THREAD_SIZE; i++) {
     CURL *curl = curl_easy_init();
     if(curl) {
@@ -92,7 +88,7 @@ static unsigned int test_thread(void *ptr)
       curl_easy_setopt(curl, CURLOPT_WRITEDATA, ptr);
       curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
-      /* Perform the request, result will get the return code */
+      /* Perform the request, result gets the return code */
       result = curl_easy_perform(curl);
 
       /* always cleanup */
@@ -111,7 +107,7 @@ test_cleanup:
   return 0;
 }
 
-#if defined(USE_THREADS_POSIX) || defined(USE_THREADS_WIN32)
+#ifdef USE_THREADS
 
 static void t3207_test_lock(CURL *curl, curl_lock_data data,
                             curl_lock_access laccess, void *useptr)
@@ -201,7 +197,7 @@ static CURLcode test_lib3207(const char *URL)
       result = ctx[i].result;
     }
     else {
-      struct curl_slist *item = ctx[i].contents;
+      const struct curl_slist *item = ctx[i].contents;
       while(item) {
         curl_mprintf("%s", item->data);
         item = item->next;

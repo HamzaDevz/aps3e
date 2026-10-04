@@ -18,7 +18,7 @@
 # Redistribution and use is allowed according to the terms of the BSD license.
 # For details see the accompanying COPYING-CMAKE-SCRIPTS file.
 IF (ANDROID)
-    RETURN()
+  RETURN()
 ENDIF()
 IF (NOT WIN32)
   IF (WAYLAND_INCLUDE_DIR AND WAYLAND_LIBRARIES)

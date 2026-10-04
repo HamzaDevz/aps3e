@@ -37,10 +37,4 @@ BadFile::~BadFile() YAML_CPP_NOEXCEPT = default;
 {
 	throw BadInsert();
 }
-
-#if _WIN32
-namespace detail {
-[[noreturn]] void throw_bad_insert() { throw BadInsert(); }
-}
-#endif
 }  // namespace YAML

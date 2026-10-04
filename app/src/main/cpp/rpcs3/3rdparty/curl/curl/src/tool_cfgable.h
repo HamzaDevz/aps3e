@@ -33,12 +33,6 @@
 
 #define checkprefix(a, b) curl_strnequal(b, STRCONST(a))
 
-#define tool_safefree(ptr) \
-  do {                     \
-    curlx_free(ptr);       \
-    (ptr) = NULL;          \
-  } while(0)
-
 extern struct GlobalConfig *global;
 
 struct State {
@@ -83,12 +77,6 @@ struct OperationConfig {
   char *dns_ipv6_addr; /* dot notation */
   char *userpwd;
   char *login_options;
-  char *tls_username;
-  char *tls_password;
-  char *tls_authtype;
-  char *proxy_tls_username;
-  char *proxy_tls_password;
-  char *proxy_tls_authtype;
   char *proxyuserpwd;
   char *proxy;
   char *noproxy;
@@ -165,6 +153,10 @@ struct OperationConfig {
   char *unix_socket_path;         /* path to Unix domain socket */
   char *haproxy_clientip;         /* client IP for HAProxy protocol */
   char *aws_sigv4;
+  char *httpsig_algorithm;
+  char *httpsig_headers;
+  char *httpsig_key;
+  char *httpsig_keyid;
   char *ech;                      /* Config set by --ech keywords */
   char *ech_config;               /* Config set by "--ech esl:" option */
   char *ech_public;               /* Config set by "--ech pn:" option */
@@ -191,8 +183,8 @@ struct OperationConfig {
   long httpversion;
   unsigned long socks5_auth;/* auth bitmask for socks5 proxies */
   long req_retry;           /* number of retries */
-  long retry_delay_ms;      /* delay between retries (in milliseconds),
-                               0 means increase exponentially */
+  uint32_t retry_delay_ms; /* delay between retries (in milliseconds), 0 means
+                              increase exponentially */
   long retry_maxtime_ms;    /* maximum time to keep retrying */
 
   unsigned long mime_options; /* Mime option flags. */
@@ -214,7 +206,7 @@ struct OperationConfig {
                         by using the default behavior for -o, -O, and -J.
                         If those options would have overwritten files, like
                         -o and -O would, then overwrite them. In the case of
-                        -J, this will not overwrite any files. */
+                        -J, this does not overwrite any files. */
     CLOBBER_NEVER, /* If the file exists, always fail */
     CLOBBER_ALWAYS /* If the file exists, always overwrite it */
   } file_clobber_mode;

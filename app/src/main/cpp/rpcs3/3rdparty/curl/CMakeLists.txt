@@ -26,6 +26,20 @@ else()
 	option(BUILD_TESTING "Build tests" OFF)
 	option(BUILD_EXAMPLES "Build libcurl examples" OFF)
 
+	if(ANDROID)
+		# check_function_exists() with the imported CURL::wolfssl target in
+		# CMAKE_REQUIRED_LIBRARIES fails to generate the try_compile test
+		# project under the NDK toolchain with newer CMake. Pre-seed the
+		# results instead (wolfSSL 5.9.x provides all of these).
+		set(HAVE_WOLFSSL_SET_QUIC_USE_LEGACY_CODEPOINT 1)
+		set(HAVE_WOLFSSL_GET_PEER_CERTIFICATE 1)
+		set(HAVE_WOLFSSL_USEALPN 1)
+		set(HAVE_WOLFSSL_BIO_NEW 1)
+		set(HAVE_WOLFSSL_BIO_SET_SHUTDOWN 1)
+		set(HAVE_WC_DES_ECBENCRYPT 1)
+		set(HAVE_WOLFSSL_CTX_GENERATEECHCONFIG 0)
+	endif()
+
 	add_subdirectory(curl EXCLUDE_FROM_ALL)
 
 	add_library(3rdparty_libcurl INTERFACE)

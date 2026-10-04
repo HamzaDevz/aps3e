@@ -2,6 +2,7 @@
 
 #include "../VulkanAPI.h"
 #include <variant>
+
 // Custom extensions to vulkan core
 namespace vk
 {
@@ -9,8 +10,8 @@ namespace vk
 	struct buffer_view;
 	struct image_view;
 	struct sampler;
-    struct sub_buffer;
-    struct buffer_upload;
+	struct sub_buffer;
+	struct buffer_upload;
 
 	// VkImage and VkImageView can be reused by drivers and are not safe for identity checking.
 	// NVIDIA driver will crash horribly if such a thing happens, so we use our own resourceId field to uniquely identify an image and its descendants such as image views.
@@ -34,14 +35,14 @@ namespace vk
 		VkDescriptorBufferViewEx(const vk::buffer_view& view);
 	};
 
-    struct VkDescriptorSubBufferEx
-    {
-        u64 resourceId = 0ull;
-        VkBuffer buffer= VK_NULL_HANDLE;
+	struct VkDescriptorSubBufferEx
+	{
+		u64 resourceId = 0ull;
+		VkBuffer buffer = VK_NULL_HANDLE;
 
-        VkDescriptorSubBufferEx() = default;
-        VkDescriptorSubBufferEx(const vk::sub_buffer& view);
-    };
+		VkDescriptorSubBufferEx() = default;
+		VkDescriptorSubBufferEx(const vk::sub_buffer& view);
+	};
 
 	struct VkDescriptorBufferInfoEx : public VkDescriptorBufferInfo
 	{
@@ -70,7 +71,8 @@ namespace vk
 
 // Re-export
 using VkDescriptorImageInfoEx = vk::VkDescriptorImageInfoEx;
-//using VkDescriptorBufferViewEx = vk::VkDescriptorBufferViewEx;
+using VkDescriptorBufferViewEx = vk::VkDescriptorBufferViewEx;
+using VkDescriptorSubBufferEx = vk::VkDescriptorSubBufferEx;
 using VkDescriptorBufferInfoEx = vk::VkDescriptorBufferInfoEx;
-using VkDescriptorBufferUploadEX=std::variant<vk::VkDescriptorBufferViewEx,vk::VkDescriptorSubBufferEx>;
+using VkDescriptorBufferUploadEX = std::variant<vk::VkDescriptorBufferViewEx, vk::VkDescriptorSubBufferEx>;
 

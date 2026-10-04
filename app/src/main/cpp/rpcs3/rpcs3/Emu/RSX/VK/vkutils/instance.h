@@ -37,8 +37,8 @@ namespace vk
 		VkInstance m_instance = VK_NULL_HANDLE;
 		VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 
-		//PFN_vkDestroyDebugReportCallbackEXT _vkDestroyDebugReportCallback = nullptr;
-		//PFN_vkCreateDebugReportCallbackEXT _vkCreateDebugReportCallback = nullptr;
+		PFN_vkDestroyDebugReportCallbackEXT _vkDestroyDebugReportCallback = nullptr;
+		PFN_vkCreateDebugReportCallbackEXT _vkCreateDebugReportCallback = nullptr;
 		VkDebugReportCallbackEXT m_debugger = nullptr;
 
 		bool extensions_loaded = false;
@@ -58,8 +58,8 @@ namespace vk
 		void bind();
 
 		std::vector<physical_device>& enumerate_devices();
+	operator VkInstance() const { return m_instance; }
 
 		swapchain_base* create_swapchain(display_handle_t window_handle, vk::physical_device& dev);
-        operator VkInstance() const{return m_instance;}
 	};
 }

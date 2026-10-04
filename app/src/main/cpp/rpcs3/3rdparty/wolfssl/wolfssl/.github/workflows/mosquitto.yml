@@ -3,8 +3,9 @@ name: mosquitto Tests
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '*' ]
 
 concurrency:
@@ -16,7 +17,7 @@ jobs:
   build_wolfssl:
     name: Build wolfSSL
     # Just to keep it the same as the testing target
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 4
@@ -32,7 +33,7 @@ jobs:
         run: tar -zcf build-dir.tgz build-dir
 
       - name: Upload built lib
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wolf-install-mosquitto
           path: build-dir.tgz
@@ -44,14 +45,20 @@ jobs:
       matrix:
         ref: [ 2.0.18 ]
     name: ${{ matrix.ref }}
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 4
     needs: build_wolfssl
     steps:
+      - name: Checkout wolfSSL CI actions
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+
       - name: Download lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: wolf-install-mosquitto
 
@@ -59,23 +66,25 @@ jobs:
         run: tar -xf build-dir.tgz
 
       - name: Checkout OSP
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: wolfssl/osp
           path: osp
+          fetch-depth: 1
 
       - name: Install dependencies
-        run: |
-            export DEBIAN_FRONTEND=noninteractive
-            sudo apt-get update
-            sudo apt-get install -y build-essential libev-dev libssl-dev automake python3-docutils libcunit1 libcunit1-doc libcunit1-dev pkg-config make python3-psutil
+        uses: ./.github/actions/install-apt-deps
+        with:
+          packages: build-essential libev-dev libssl-dev automake python3-docutils libcunit1 libcunit1-doc libcunit1-dev pkg-config make python3-psutil
+          ghcr-debs-tag: ubuntu-24.04-full
 
       - name: Checkout mosquitto
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: eclipse/mosquitto
           ref: v${{ matrix.ref }}
           path: mosquitto
+          fetch-depth: 1
 
       - name: Update certs
         run: |
@@ -87,7 +96,7 @@ jobs:
         run: |
             cd $GITHUB_WORKSPACE/mosquitto/
             patch -p1 < $GITHUB_WORKSPACE/osp/mosquitto/${{ matrix.ref }}.patch
-            make WITH_TLS=wolfssl WITH_CJSON=no WITH_DOCS=no WOLFSSLDIR=$GITHUB_WORKSPACE/build-dir
+            make -j WITH_TLS=wolfssl WITH_CJSON=no WITH_DOCS=no WOLFSSLDIR=$GITHUB_WORKSPACE/build-dir
 
       - name: Run mosquitto tests
         working-directory: ./mosquitto
@@ -95,7 +104,7 @@ jobs:
           # Retry up to five times
           for i in {1..5}; do
             TEST_RES=0
-            make WITH_TLS=wolfssl WITH_CJSON=no WITH_DOCS=no WOLFSSLDIR=$GITHUB_WORKSPACE/build-dir ptest || TEST_RES=$?
+            make -j WITH_TLS=wolfssl WITH_CJSON=no WITH_DOCS=no WOLFSSLDIR=$GITHUB_WORKSPACE/build-dir ptest || TEST_RES=$?
             if [ "$TEST_RES" -eq "0" ]; then
               break
             fi

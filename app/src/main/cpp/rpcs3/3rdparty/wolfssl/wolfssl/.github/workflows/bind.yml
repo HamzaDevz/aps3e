@@ -3,8 +3,9 @@ name: bind9 Tests
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '*' ]
 
 concurrency:
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   build_wolfssl:
     name: Build wolfSSL
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     # Just to keep it the same as the testing target
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
@@ -33,7 +34,7 @@ jobs:
         run: tar -zcf build-dir.tgz build-dir
 
       - name: Upload built lib
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wolf-install-bind
           path: build-dir.tgz
@@ -46,14 +47,20 @@ jobs:
         # List of releases to test
         ref: [ 9.18.0, 9.18.28, 9.18.33, 9.20.11 ]
     name: ${{ matrix.ref }}
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 10
     needs: build_wolfssl
     steps:
+      - name: Checkout wolfSSL CI actions
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+
       - name: Download lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: wolf-install-bind
 
@@ -61,25 +68,25 @@ jobs:
         run: tar -xf build-dir.tgz
 
       - name: Install dependencies
-        run: |
-          # Don't prompt for anything
-          export DEBIAN_FRONTEND=noninteractive
-          sudo apt-get update
-          # hostap dependencies
-          sudo apt-get install -y libuv1-dev libnghttp2-dev libcap-dev libcmocka-dev liburcu-dev
+        uses: ./.github/actions/install-apt-deps
+        with:
+          packages: libuv1-dev libnghttp2-dev libcap-dev libcmocka-dev liburcu-dev
+          ghcr-debs-tag: ubuntu-24.04-full
 
       - name: Checkout OSP
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: wolfssl/osp
           path: osp
+          fetch-depth: 1
 
       - name: Checkout bind9
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: isc-projects/bind9
           path: bind
           ref: v${{ matrix.ref }}
+          fetch-depth: 1
 
       - name: Build and test bind9
         working-directory: bind

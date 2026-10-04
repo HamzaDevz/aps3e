@@ -28,7 +28,6 @@ if BUILD_DOCS
 # if we disable man page building, ignore these
 MK_CA_DOCS = mk-ca-bundle.1
 CURLCONF_DOCS = curl-config.1
-TEST_DOCS = runtests.1 testcurl.1
 man_MANS = curl-config.1 wcurl.1
 endif
 
@@ -38,7 +37,7 @@ SUBDIRS = . cmdline-opts libcurl
 DIST_SUBDIRS = $(SUBDIRS) examples
 
 if BUILD_DOCS
-CLEANFILES = $(MK_CA_DOCS) $(man_MANS) $(TEST_DOCS)
+CLEANFILES = $(MK_CA_DOCS) $(man_MANS)
 endif
 
 TESTDOCS =                                       \
@@ -54,6 +53,7 @@ INTERNALDOCS =                                   \
   internals/CLIENT-WRITERS.md                    \
   internals/CODE_STYLE.md                        \
   internals/CONNECTION-FILTERS.md                \
+  internals/CREDENTIALS.md                       \
   internals/CURLX.md                             \
   internals/DYNBUF.md                            \
   internals/HASH.md                              \
@@ -62,12 +62,14 @@ INTERNALDOCS =                                   \
   internals/MQTT.md                              \
   internals/MULTI-EV.md                          \
   internals/NEW-PROTOCOL.md                      \
+  internals/PEERS.md                             \
   internals/PORTING.md                           \
   internals/RATELIMITS.md                        \
   internals/README.md                            \
   internals/SCORECARD.md                         \
   internals/SPLAY.md                             \
   internals/STRPARSE.md                          \
+  internals/THRDPOOL-AND-QUEUE.md                \
   internals/TIME-KEEPING.md                      \
   internals/TLS-SESSIONS.md                      \
   internals/UINT_SETS.md                         \
@@ -81,14 +83,15 @@ EXTRA_DIST =                                     \
   BINDINGS.md                                    \
   BUG-BOUNTY.md                                  \
   BUGS.md                                        \
-  CIPHERS.md                                     \
   CIPHERS-TLS12.md                               \
+  CIPHERS.md                                     \
   CMakeLists.txt                                 \
   CODE_OF_CONDUCT.md                             \
   CODE_REVIEW.md                                 \
   CONTRIBUTE.md                                  \
   CURL-DISABLE.md                                \
   CURLDOWN.md                                    \
+  DEPENDENCIES.md                                \
   DEPRECATE.md                                   \
   DISTROS.md                                     \
   EARLY-RELEASE.md                               \
@@ -107,7 +110,6 @@ EXTRA_DIST =                                     \
   INSTALL                                        \
   INSTALL-CMAKE.md                               \
   INSTALL.md                                     \
-  INTERNALS.md                                   \
   IPFS.md                                        \
   KNOWN_BUGS.md                                  \
   KNOWN_RISKS.md                                 \
@@ -116,16 +118,17 @@ EXTRA_DIST =                                     \
   options-in-versions                            \
   README.md                                      \
   RELEASE-PROCEDURE.md                           \
-  RUSTLS.md                                      \
   ROADMAP.md                                     \
+  RUSTLS.md                                      \
   SECURITY-ADVISORY.md                           \
   SPONSORS.md                                    \
   SSL-PROBLEMS.md                                \
   SSLCERTS.md                                    \
   THANKS                                         \
-  TODO.md                                        \
   TheArtOfHttpScripting.md                       \
+  TODO.md                                        \
   URL-SYNTAX.md                                  \
+  VERIFY.md                                      \
   VERSIONS.md                                    \
   VULN-DISCLOSURE-POLICY.md
 
@@ -138,7 +141,7 @@ CD2_ = $(CD2_0)
 
 SUFFIXES = .1 .md
 
-all: $(MK_CA_DOCS) $(CURLCONF_DOCS) $(TEST_DOCS)
+all: $(MK_CA_DOCS) $(CURLCONF_DOCS)
 
 .md.1:
 	$(CD2)$(CD2NROFF)

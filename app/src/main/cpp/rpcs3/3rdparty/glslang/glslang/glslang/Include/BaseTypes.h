@@ -50,6 +50,8 @@ enum TBasicType {
     EbtDouble,
     EbtFloat16,
     EbtBFloat16,
+    EbtFloatE5M2,
+    EbtFloatE4M3,
     EbtInt8,
     EbtUint8,
     EbtInt16,
@@ -67,11 +69,14 @@ enum TBasicType {
     EbtReference,
     EbtRayQuery,
     EbtHitObjectNV,
+    EbtHitObjectEXT,
     EbtCoopmat,
     EbtFunction,
     EbtTensorLayoutNV,
     EbtTensorViewNV,
     EbtCoopvecNV,
+    EbtTensorARM,
+    EbtLongVector,
     // SPIR-V type defined by spirv_type
     EbtSpirvType,
 
@@ -108,6 +113,7 @@ enum TStorageQualifier {
     EvqCallableData,
     EvqCallableDataIn,
     EvqHitObjectAttrNV,
+    EvqHitObjectAttrEXT,
 
     EvqtaskPayloadSharedEXT,
 
@@ -137,6 +143,10 @@ enum TStorageQualifier {
     EvqFragStencil,
 
     EvqTileImageEXT,
+
+    // EXT_structured_descriptor_heap
+    EvqSamplerHeap,
+    EvqResourceHeap,
 
     // end of list
     EvqLast
@@ -344,6 +354,14 @@ enum TBuiltInVariable {
 
     EbvPositionFetch,
 
+    // SPV_QCOM_tile_shading
+    EbvTileOffsetQCOM,
+    EbvTileDimensionQCOM,
+    EbvTileApronSizeQCOM,
+    // GL_EXT_descriptor_heap
+    EbvSamplerHeapEXT,
+    EbvResourceHeapEXT,
+
     EbvLast
 };
 
@@ -390,7 +408,8 @@ __inline const char* GetStorageQualifierString(TStorageQualifier q)
     case EvqCallableData:   return "callableDataNV";   break;
     case EvqCallableDataIn: return "callableDataInNV"; break;
     case EvqtaskPayloadSharedEXT: return "taskPayloadSharedEXT"; break;
-    case EvqHitObjectAttrNV:return "hitObjectAttributeNV"; break;
+    case EvqHitObjectAttrNV: return "hitObjectAttributeNV"; break;
+    case EvqHitObjectAttrEXT:return "hitObjectAttributeEXT"; break;
     default:                return "unknown qualifier";
     }
 }
@@ -592,6 +611,22 @@ __inline bool isTypeUnsignedInt(TBasicType type)
     }
 }
 
+__inline TBasicType unsignedTypeToSigned(TBasicType type)
+{
+    switch (type) {
+    case EbtUint8:
+        return EbtInt8;
+    case EbtUint16:
+        return EbtInt16;
+    case EbtUint:
+        return EbtInt;
+    case EbtUint64:
+        return EbtInt64;
+    default:
+        return type;
+    }
+}
+
 __inline bool isTypeInt(TBasicType type)
 {
     return isTypeSignedInt(type) || isTypeUnsignedInt(type);
@@ -604,6 +639,8 @@ __inline bool isTypeFloat(TBasicType type)
     case EbtDouble:
     case EbtFloat16:
     case EbtBFloat16:
+    case EbtFloatE5M2:
+    case EbtFloatE4M3:
         return true;
     default:
         return false;
@@ -615,6 +652,8 @@ __inline uint32_t GetNumBits(TBasicType type)
     switch (type) {
     case EbtInt8:
     case EbtUint8:
+    case EbtFloatE5M2:
+    case EbtFloatE4M3:
         return 8;
     case EbtBFloat16:
     case EbtFloat16:

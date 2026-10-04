@@ -46,23 +46,18 @@
 #include <libpsl.h>
 #endif
 
-#ifdef USE_LIBRTMP
-#include <librtmp/rtmp.h>
-#include "curl_rtmp.h"
-#endif
-
 #ifdef HAVE_LIBZ
 #include <zlib.h>
 #endif
 
 #ifdef HAVE_BROTLI
-#if defined(__GNUC__) || defined(__clang__)
+#ifdef CURL_HAVE_DIAG
 /* Ignore -Wvla warnings in brotli headers */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wvla"
 #endif
 #include <brotli/decode.h>
-#if defined(__GNUC__) || defined(__clang__)
+#ifdef CURL_HAVE_DIAG
 #pragma GCC diagnostic pop
 #endif
 #endif
@@ -178,9 +173,6 @@ char *curl_version(void)
 #if !defined(CURL_DISABLE_HTTP) && defined(USE_HTTP3)
   char h3_version[30];
 #endif
-#ifdef USE_LIBRTMP
-  char rtmp_version[30];
-#endif
 #ifdef USE_GSASL
   char gsasl_buf[30];
 #endif
@@ -244,22 +236,18 @@ char *curl_version(void)
   Curl_quic_ver(h3_version, sizeof(h3_version));
   src[i++] = h3_version;
 #endif
-#ifdef USE_LIBRTMP
-  Curl_rtmp_version(rtmp_version, sizeof(rtmp_version));
-  src[i++] = rtmp_version;
-#endif
 #ifdef USE_GSASL
   curl_msnprintf(gsasl_buf, sizeof(gsasl_buf), "libgsasl/%s",
                  gsasl_check_version(NULL));
   src[i++] = gsasl_buf;
 #endif
 #ifdef HAVE_GSSAPI
-#ifdef HAVE_GSSGNU
-  curl_msnprintf(gss_buf, sizeof(gss_buf), "libgss/%s",
-                 GSS_VERSION);
+#ifdef HAVE_GSSAPPLE
+  curl_msnprintf(gss_buf, sizeof(gss_buf), "AppleGSS");
+#elif defined(HAVE_GSSGNU)
+  curl_msnprintf(gss_buf, sizeof(gss_buf), "libgss/%s", GSS_VERSION);
 #elif defined(CURL_KRB5_VERSION)
-  curl_msnprintf(gss_buf, sizeof(gss_buf), "mit-krb5/%s",
-                 CURL_KRB5_VERSION);
+  curl_msnprintf(gss_buf, sizeof(gss_buf), "mit-krb5/%s", CURL_KRB5_VERSION);
 #else
   curl_msnprintf(gss_buf, sizeof(gss_buf), "mit-krb5");
 #endif
@@ -350,14 +338,6 @@ static const char * const supported_protocols[] = {
 #if defined(USE_SSL) && !defined(CURL_DISABLE_POP3)
   "pop3s",
 #endif
-#ifdef USE_LIBRTMP
-  "rtmp",
-  "rtmpe",
-  "rtmps",
-  "rtmpt",
-  "rtmpte",
-  "rtmpts",
-#endif
 #ifndef CURL_DISABLE_RTSP
   "rtsp",
 #endif
@@ -365,7 +345,7 @@ static const char * const supported_protocols[] = {
   "scp",
   "sftp",
 #endif
-#if !defined(CURL_DISABLE_SMB) && defined(USE_CURL_NTLM_CORE)
+#if defined(CURL_ENABLE_SMB) && defined(USE_CURL_NTLM_CORE)
   "smb",
 #  ifdef USE_SSL
   "smbs",
@@ -410,7 +390,7 @@ static int idn_present(curl_version_info_data *info)
   (void)info;
   return TRUE;
 #else
-  return info->libidn != NULL;
+  return !!info->libidn;
 #endif
 }
 #endif
@@ -451,8 +431,8 @@ static const struct feat features_table[] = {
 #ifndef CURL_DISABLE_ALTSVC
   FEATURE("alt-svc",     NULL,                CURL_VERSION_ALTSVC),
 #endif
-#if defined(USE_ARES) && defined(CURLRES_THREADED) && defined(USE_HTTPSRR)
-  FEATURE("asyn-rr", NULL,             0),
+#if defined(USE_ARES) && defined(USE_RESOLV_THREADED) && defined(USE_HTTPSRR)
+  FEATURE("asyn-rr",     NULL,                0),
 #endif
 #ifdef CURLRES_ASYNCH
   FEATURE("AsynchDNS",   NULL,                CURL_VERSION_ASYNCHDNS),
@@ -489,6 +469,9 @@ static const struct feat features_table[] = {
   !defined(CURL_DISABLE_HTTP)
   FEATURE("HTTPS-proxy", https_proxy_present, CURL_VERSION_HTTPS_PROXY),
 #endif
+#ifndef CURL_DISABLE_HTTPSIG
+  FEATURE("HTTPSIG",     NULL,                0),
+#endif
 #ifdef USE_HTTPSRR
   FEATURE("HTTPSRR",     NULL,                0),
 #endif
@@ -512,6 +495,9 @@ static const struct feat features_table[] = {
 #endif
 #ifdef USE_NTLM
   FEATURE("NTLM",        NULL,                CURL_VERSION_NTLM),
+#endif
+#ifdef USE_PROXY_HTTP3
+  FEATURE("proxy-HTTP3", NULL,                0),
 #endif
 #ifdef USE_LIBPSL
   FEATURE("PSL",         NULL,                CURL_VERSION_PSL),
@@ -537,9 +523,6 @@ static const struct feat features_table[] = {
 #endif
 #ifdef GLOBAL_INIT_IS_THREADSAFE
   FEATURE("threadsafe",  NULL,                CURL_VERSION_THREADSAFE),
-#endif
-#ifdef USE_TLS_SRP
-  FEATURE("TLS-SRP",     NULL,                CURL_VERSION_TLSAUTH_SRP),
 #endif
 #if defined(_WIN32) && defined(UNICODE) && defined(_UNICODE)
   FEATURE("Unicode",     NULL,                CURL_VERSION_UNICODE),
@@ -693,14 +676,6 @@ curl_version_info_data *curl_version_info(CURLversion stamp)
 
   feature_names[n] = NULL;  /* Terminate array. */
   version_info.features = features;
-
-#ifdef USE_LIBRTMP
-  {
-    static char rtmp_version[30];
-    Curl_rtmp_version(rtmp_version, sizeof(rtmp_version));
-    version_info.rtmp_version = rtmp_version;
-  }
-#endif
 
   return &version_info;
 }

@@ -3,8 +3,9 @@ name: openldap Tests
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '*' ]
 
 concurrency:
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   build_wolfssl:
     name: Build wolfSSL
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     # Just to keep it the same as the testing target
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
@@ -33,7 +34,7 @@ jobs:
         run: tar -zcf build-dir.tgz build-dir
 
       - name: Upload built lib
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wolf-install-openldap
           path: build-dir.tgz
@@ -52,14 +53,14 @@ jobs:
           - osp_ref: 2.6.9
             git_ref: OPENLDAP_REL_ENG_2_6_9
     name: ${{ matrix.osp_ref }}
-    if: github.repository_owner == 'wolfssl'
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-24.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 20
     needs: build_wolfssl
     steps:
       - name: Download lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: wolf-install-openldap
 
@@ -67,17 +68,19 @@ jobs:
         run: tar -xf build-dir.tgz
 
       - name: Checkout OSP
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: wolfssl/osp
           path: osp
+          fetch-depth: 1
 
       - name: Checkout openldap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: openldap/openldap
           path: openldap
           ref: ${{ matrix.git_ref }}
+          fetch-depth: 1
 
       - name: Build and test OpenLDAP
         working-directory: openldap

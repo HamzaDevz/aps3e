@@ -23,6 +23,10 @@
  ***************************************************************************/
 #include "first.h"
 
+#ifdef BUILDING_LIBCURL
+#include "unitprotos.h"
+#endif
+
 /* The fail macros mark the current test step as failed, and continue */
 #define fail_if(expr, msg)                                             \
   do {                                                                 \
@@ -44,7 +48,7 @@
 
 #define verify_memory(dynamic, check, len)                                  \
   do {                                                                      \
-    if((dynamic) && memcmp(dynamic, check, len)) {                          \
+    if(memcmp(dynamic, check, len)) {                                       \
       curl_mfprintf(stderr, "%s:%d Memory buffer FAILED match size %d. "    \
                     "'%s' is not\n", __FILE__, __LINE__, len,               \
                     hexdump((const unsigned char *)(check), len));          \

@@ -236,6 +236,7 @@ endif()
 
 # OpenAL
 if (NOT ANDROID)
+	set(ALSOFT_ENABLE_MODULES OFF CACHE BOOL "Enable use of C++20 modules" FORCE)
 	add_subdirectory(OpenAL EXCLUDE_FROM_ALL)
 else()
 	add_library(3rdparty_openal INTERFACE)

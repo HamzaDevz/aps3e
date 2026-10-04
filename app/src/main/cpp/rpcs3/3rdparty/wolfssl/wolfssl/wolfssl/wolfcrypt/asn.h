@@ -67,14 +67,20 @@ that can be serialized and deserialized in a cross-platform way.
 #ifdef HAVE_ED448
     #include <wolfssl/wolfcrypt/ed448.h>
 #endif
-#ifdef HAVE_SPHINCS
-    #include <wolfssl/wolfcrypt/sphincs.h>
+#ifdef WOLFSSL_HAVE_SLHDSA
+    #include <wolfssl/wolfcrypt/wc_slhdsa.h>
+#endif
+#ifdef WOLFSSL_HAVE_LMS
+    #include <wolfssl/wolfcrypt/wc_lms.h>
+#endif
+#ifdef WOLFSSL_HAVE_XMSS
+    #include <wolfssl/wolfcrypt/wc_xmss.h>
 #endif
 #ifdef HAVE_FALCON
     #include <wolfssl/wolfcrypt/falcon.h>
 #endif
-#ifdef HAVE_DILITHIUM
-    #include <wolfssl/wolfcrypt/dilithium.h>
+#ifdef WOLFSSL_HAVE_MLDSA
+    #include <wolfssl/wolfcrypt/wc_mldsa.h>
 #endif
 #ifndef NO_SHA
     #include <wolfssl/wolfcrypt/sha.h>
@@ -83,6 +89,9 @@ that can be serialized and deserialized in a cross-platform way.
     #include <wolfssl/wolfcrypt/md5.h>
 #endif
 #include <wolfssl/wolfcrypt/sha256.h>
+#if defined(WOLFSSL_SHA384) || defined(WOLFSSL_SHA512)
+    #include <wolfssl/wolfcrypt/sha512.h>
+#endif
 #ifdef WOLFSSL_SM3
     #include <wolfssl/wolfcrypt/sm3.h>
 #endif
@@ -374,9 +383,9 @@ WOLFSSL_LOCAL void GetASN_Boolean(ASNGetData *dataASN, byte* num);
 WOLFSSL_LOCAL void GetASN_OID(ASNGetData *dataASN, int oidType);
 WOLFSSL_LOCAL void GetASN_GetConstRef(ASNGetData * dataASN, const byte** data,
     word32* length);
-WOLFSSL_LOCAL void GetASN_GetRef(ASNGetData * dataASN, byte** data,
+WOLFSSL_LOCAL void GetASN_GetRef(const ASNGetData * dataASN, const byte** data,
     word32* length);
-WOLFSSL_LOCAL void GetASN_OIDData(ASNGetData * dataASN, byte** data,
+WOLFSSL_LOCAL void GetASN_OIDData(const ASNGetData * dataASN, const byte** data,
     word32* length);
 WOLFSSL_LOCAL void SetASN_Boolean(ASNSetData *dataASN, byte val);
 WOLFSSL_LOCAL void SetASN_Int8Bit(ASNSetData *dataASN, byte num);
@@ -530,8 +539,8 @@ WOLFSSL_LOCAL void SetASN_OID(ASNSetData *dataASN, int oid, int oidType);
  */
 #define GetASN_GetRef(dataASN, d, l)                                   \
     do {                                                               \
-        *(d) = (byte*)(dataASN)->data.ref.data;                        \
-        *(l) =        (dataASN)->data.ref.length;                      \
+        *(d) = (const byte*)(dataASN)->data.ref.data;                  \
+        *(l) =              (dataASN)->data.ref.length;                \
     } while (0)
 
 /* Get the data and length from an ASN data item that is an OID.
@@ -542,7 +551,7 @@ WOLFSSL_LOCAL void SetASN_OID(ASNSetData *dataASN, int oid, int oidType);
  */
 #define GetASN_OIDData(dataASN, d, l)                                  \
     do {                                                               \
-        *(d) = (byte*)(dataASN)->data.oid.data;                        \
+        *(d) = (const byte*)(dataASN)->data.oid.data;                  \
         *(l) =        (dataASN)->data.oid.length;                      \
     } while (0)
 
@@ -648,6 +657,9 @@ WOLFSSL_LOCAL void SetASN_OID(ASNSetData *dataASN, int oid, int oidType);
     ((dataASN).length + (word32)((dataASN).data.buffer.data - (in)) -  \
                                                      (dataASN).offset)
 
+#define GetASNItem_HaveData(dataASN)                                   \
+   ((dataASN).data.buffer.data != NULL)
+
 /* Get the index of a BER item's data.
  *
  * @param [in] dataASN  Dynamic ASN data item.
@@ -656,6 +668,9 @@ WOLFSSL_LOCAL void SetASN_OID(ASNSetData *dataASN, int oid, int oidType);
  */
 #define GetASNItem_DataIdx(dataASN, in)                                \
     (word32)((dataASN).data.ref.data - (in))
+
+#define GetASNItem_HaveIdx(dataASN)                                    \
+    ((dataASN).data.ref.data != NULL)
 
 /* Get the end index of a BER item - index of the start of the next item.
  *
@@ -868,8 +883,8 @@ extern const WOLFSSL_ObjectInfo wolfssl_object_info[];
     #endif
 #endif
 
-#if defined(HAVE_FALCON) || defined(HAVE_DILITHIUM)
-    #define WC_MAX_CERT_VERIFY_SZ 6000            /* For Dilithium */
+#if defined(HAVE_FALCON) || defined(WOLFSSL_HAVE_MLDSA)
+    #define WC_MAX_CERT_VERIFY_SZ 6000            /* For ML-DSA */
 #elif defined(WOLFSSL_CERT_EXT)
     #define WC_MAX_CERT_VERIFY_SZ 2048            /* For larger extensions */
 #elif !defined(NO_RSA) && defined(WC_MAX_RSA_BITS)
@@ -1263,7 +1278,7 @@ enum Misc_ASN {
     DSA_PARAM_INTS      =   3,     /* DSA parameter ints */
     RSA_PUB_INTS        =   2,     /* RSA ints in public key */
     MIN_DATE_SIZE       =  12,
-    MAX_DATE_SIZE       =  32,
+    MAX_DATE_SIZE       =  CTC_DATE_SIZE,
     ASN_GEN_TIME_SZ     =  15,     /* 7 numbers * 2 + Zulu tag */
 
 #ifdef WOLFSSL_CERT_GEN
@@ -1301,6 +1316,10 @@ enum Misc_ASN {
 #endif
     MAX_CERTPOL_NB      = CTC_MAX_CERTPOL_NB,/* Max number of Cert Policy */
     MAX_CERTPOL_SZ      = CTC_MAX_CERTPOL_SZ,
+#endif
+#ifdef WOLFSSL_ACME_OID
+    MAX_ACMEID_SZ       = 19 + WC_SHA256_DIGEST_SIZE, /* Max encoded
+                                                         acmeIdentifier size */
 #endif
     OCSP_NONCE_EXT_SZ   = 35,      /* OCSP Nonce Extension size */
     MAX_OCSP_EXT_SZ     = 58,      /* Max OCSP Extension length */
@@ -1436,12 +1455,16 @@ struct DNS_entry {
     DNS_entry* next;   /* next on DNS list */
     int        type;   /* i.e. ASN_DNS_TYPE */
     int        len;    /* actual DNS len */
-    char*      name;   /* actual DNS name */
+    const char*
+               name;   /* actual DNS name */
+    int        nameStored;
 #ifdef WOLFSSL_IP_ALT_NAME
     char*      ipString; /* human readable form of IP address */
+    int        ipStringStored;
 #endif
 #ifdef WOLFSSL_RID_ALT_NAME
     char*      ridString; /* human readable form of registeredID */
+    int        ridStringStored;
 #endif
 
 #ifdef WOLFSSL_FPKI
@@ -1518,14 +1541,17 @@ struct SignatureCtx {
 #endif
 #if !defined(NO_RSA) || !defined(NO_DSA)
     #ifdef WOLFSSL_NO_MALLOC
-    byte  sigCpy[MAX_ENCODED_SIG_SZ];
+    /* Holds a copy of the RSA/DSA signature being verified, which is at most
+     * an RSA-modulus-sized value -- never a (much larger) PQC signature. */
+    byte  sigCpy[MAX_ENCODED_CLASSIC_SIG_SZ];
     #else
     byte* sigCpy;
     #endif
 #endif
 #if defined(HAVE_ECC) || defined(HAVE_ED25519) || defined(HAVE_ED448) || \
-    !defined(NO_DSA) || defined(HAVE_DILITHIUM) || defined(HAVE_FALCON) || \
-    defined(HAVE_SPHINCS)
+    !defined(NO_DSA) || defined(WOLFSSL_HAVE_MLDSA) || defined(HAVE_FALCON) || \
+    defined(WOLFSSL_HAVE_SLHDSA) || defined(WOLFSSL_HAVE_LMS) || \
+    defined(WOLFSSL_HAVE_XMSS)
     int verify;
 #endif
     union {
@@ -1571,18 +1597,32 @@ struct SignatureCtx {
         struct falcon_key* falcon;
         #endif
     #endif
-    #ifdef HAVE_DILITHIUM
+    #ifdef WOLFSSL_HAVE_MLDSA
         #ifdef WOLFSSL_NO_MALLOC
-        struct dilithium_key  dilithium[1];
+        wc_MlDsaKey  mldsa[1];
         #else
-        struct dilithium_key* dilithium;
+        wc_MlDsaKey* mldsa;
         #endif
     #endif
-    #ifdef HAVE_SPHINCS
+    #ifdef WOLFSSL_HAVE_SLHDSA
         #ifdef WOLFSSL_NO_MALLOC
-        struct sphincs_key  sphincs[1];
+        SlhDsaKey  slhdsa[1];
         #else
-        struct sphincs_key* sphincs;
+        SlhDsaKey* slhdsa;
+        #endif
+    #endif
+    #ifdef WOLFSSL_HAVE_LMS
+        #ifdef WOLFSSL_NO_MALLOC
+        LmsKey  lms[1];
+        #else
+        LmsKey* lms;
+        #endif
+    #endif
+    #ifdef WOLFSSL_HAVE_XMSS
+        #ifdef WOLFSSL_NO_MALLOC
+        XmssKey  xmss[1];
+        #else
+        XmssKey* xmss;
         #endif
     #endif
     #ifndef WOLFSSL_NO_MALLOC
@@ -1747,6 +1787,13 @@ struct DecodedCert {
 #ifndef IGNORE_NAME_CONSTRAINTS
     DNS_entry* altEmailNames;        /* alt names list of RFC822 entries */
     DNS_entry* altDirNames;          /* alt names list of DIR entries    */
+    /* Raw OtherName GeneralName encodings (OID || [0] EXPLICIT value)
+     * for any otherName SAN seen on this certificate. Used internally by
+     * ConfirmNameConstraints() for byte-exact matching against the
+     * issuing CA's nameConstraints subtrees (RFC 5280 4.2.1.10). Kept
+     * separate from altNames so OpenSSL-compat APIs that iterate
+     * altNames see exactly the entries the SAN extension carries. */
+    DNS_entry* altOtherNamesRaw;
     Base_entry* permittedNames;      /* Permitted name bases             */
     Base_entry* excludedNames;       /* Excluded name bases              */
 #endif /* IGNORE_NAME_CONSTRAINTS */
@@ -1756,8 +1803,10 @@ struct DecodedCert {
     byte    subjectKeyHash[KEYID_SIZE]; /* hash of the public Key         */
     byte    issuerKeyHash[KEYID_SIZE];  /* hash of the public Key         */
 #endif /* HAVE_OCSP */
-    const byte* signature;           /* not owned, points into raw cert  */
-    char*   subjectCN;               /* CommonName                       */
+    const byte*
+            signature;               /* not owned, points into raw cert  */
+    const char*
+            subjectCN;               /* CommonName                       */
     int     subjectCNLen;            /* CommonName Length                */
     char    subjectCNEnc;            /* CommonName Encoding              */
     char    issuer[WC_ASN_NAME_MAX]; /* full name including common name  */
@@ -1837,13 +1886,16 @@ struct DecodedCert {
 #endif /* WOLFSSL_SUBJ_INFO_ACC */
 
 #if defined(HAVE_ECC) || defined(HAVE_ED25519) || defined(HAVE_ED448) || \
-    defined(HAVE_DILITHIUM) || defined(HAVE_FALCON) || defined(HAVE_SPHINCS)
+    defined(WOLFSSL_HAVE_MLDSA) || defined(HAVE_FALCON) || \
+    defined(WOLFSSL_HAVE_SLHDSA) || defined(WOLFSSL_HAVE_LMS) || \
+    defined(WOLFSSL_HAVE_XMSS)
     word32  pkCurveOID;           /* Public Key's curve OID */
     #ifdef WOLFSSL_CUSTOM_CURVES
         int  pkCurveSize;         /* Public Key's curve size */
     #endif
-#endif /* HAVE_ECC || HAVE_ED25519 || HAVE_ED448 || HAVE_DILITHIUM ||
-        * HAVE_FALCON || HAVE_SPHINCS */
+#endif /* HAVE_ECC || HAVE_ED25519 || HAVE_ED448 || WOLFSSL_HAVE_MLDSA ||
+        * HAVE_FALCON || WOLFSSL_HAVE_SLHDSA || WOLFSSL_HAVE_LMS ||
+        * WOLFSSL_HAVE_XMSS */
     const byte* beforeDate;
     int     beforeDateLen;
     const byte* afterDate;
@@ -1862,7 +1914,8 @@ struct DecodedCert {
 #endif
 #if !defined(IGNORE_NAME_CONSTRAINTS) || \
      defined(WOLFSSL_CERT_GEN) || defined(WOLFSSL_CERT_EXT)
-    char*   subjectEmail;
+    const char*
+            subjectEmail;
     int     subjectEmailLen;
 #endif
 #if defined(WOLFSSL_CERT_GEN) || defined(WOLFSSL_CERT_EXT)
@@ -1911,17 +1964,20 @@ struct DecodedCert {
     char*   subjectBC;
     int     subjectBCLen;
     char    subjectBCEnc;
-    char*   subjectJC;
+    const char*
+            subjectJC;
     int     subjectJCLen;
     char    subjectJCEnc;
-    char*   subjectJS;
+    const char*
+            subjectJS;
     int     subjectJSLen;
     char    subjectJSEnc;
     char*   subjectPC;
     int     subjectPCLen;
     char    subjectPCEnc;
 #if defined(WOLFSSL_HAVE_ISSUER_NAMES)
-    char*   issuerCN;
+    const char*
+            issuerCN;
     int     issuerCNLen;
     char    issuerCNEnc;
     char*   issuerSN;
@@ -1945,7 +2001,8 @@ struct DecodedCert {
     char*   issuerSND;
     int     issuerSNDLen;
     char    issuerSNDEnc;
-    char*   issuerEmail;
+    const char*
+            issuerEmail;
     int     issuerEmailLen;
 #endif /* WOLFSSL_HAVE_ISSUER_NAMES */
 #endif /* WOLFSSL_CERT_GEN || WOLFSSL_CERT_EXT */
@@ -1972,11 +2029,14 @@ struct DecodedCert {
 
 #ifdef WOLFSSL_CERT_REQ
     /* CSR attributes */
-    char*   contentType; /* Content Type */
+    const char*
+            contentType; /* Content Type */
     int     contentTypeLen;
-    char*   cPwd; /* Challenge Password */
+    const char*
+            cPwd; /* Challenge Password */
     int     cPwdLen;
-    char*   sNum; /* Serial Number */
+    const char*
+            sNum; /* Serial Number */
     int     sNumLen;
     char*   dnQualifier;
     int     dnQualifierLen;
@@ -1986,7 +2046,8 @@ struct DecodedCert {
     int     surnameLen;
     char*   givenName;
     int     givenNameLen;
-    char*   unstructuredName;
+    const char*
+            unstructuredName;
     int     unstructuredNameLen;
 #endif /* WOLFSSL_CERT_REQ */
 
@@ -2028,7 +2089,7 @@ struct DecodedCert {
     WC_BITFIELD extSubjAltNameSet:1;
     WC_BITFIELD inhibitAnyOidSet:1;
     WC_BITFIELD selfSigned:1;           /* Indicates subject and issuer are same */
-#ifdef WOLFSSL_SEP
+#if defined(WOLFSSL_SEP) || defined(WOLFSSL_CERT_EXT)
     WC_BITFIELD extCertPolicySet:1;
 #endif
     WC_BITFIELD extCRLdistCrit:1;
@@ -2038,7 +2099,23 @@ struct DecodedCert {
     WC_BITFIELD extSubjAltNameCrit:1;
     WC_BITFIELD extAuthKeyIdCrit:1;
 #ifndef IGNORE_NAME_CONSTRAINTS
+    /*!
+     * \brief Set when the certificate's nameConstraints extension was
+     *        present and marked critical.
+     */
     WC_BITFIELD extNameConstraintCrit:1;
+    /*!
+     * \brief Set when decoding the nameConstraints extension encountered
+     *        at least one permittedSubtrees or excludedSubtrees entry whose
+     *        GeneralName form (e.g. registeredID, x400Address,
+     *        ediPartyName) wolfSSL does not enforce.
+     *
+     * During verification, ConfirmNameConstraints() implements the RFC
+     * 5280 4.2.1.10 fail-closed requirement: when both this flag and
+     * extNameConstraintCrit are set, the chain is rejected rather than
+     * the unsupported constraint form being silently ignored.
+     */
+    WC_BITFIELD extNameConstraintHasUnsupported:1;
 #endif
     WC_BITFIELD extSubjKeyIdCrit:1;
     WC_BITFIELD extKeyUsageCrit:1;
@@ -2083,7 +2160,13 @@ struct DecodedCert {
     WC_BITFIELD extAltSigAlgCrit:1;
     WC_BITFIELD extAltSigValCrit:1;
 #endif /* WOLFSSL_DUAL_ALG_CERTS */
-
+#ifdef WOLFSSL_ACME_OID
+    /* id-pe-acmeIdentifier (TLS-ALPN-01 challenge cert) */
+    byte acmeIdentifier[WC_SHA256_DIGEST_SIZE];
+    int  acmeIdentifierSz;
+    WC_BITFIELD extAcmeIdentifierSet:1;
+    WC_BITFIELD extAcmeIdentifierCrit:1;
+#endif /* WOLFSSL_ACME_OID */
     WOLFSSL_AIA_ENTRY extAuthInfoList[WOLFSSL_MAX_AIA_ENTRIES];
     WC_BITFIELD extAuthInfoListSz:7;
     WC_BITFIELD extAuthInfoListOverflow:1;
@@ -2106,9 +2189,29 @@ struct Signer {
     byte    extKeyUsage;
     word16  maxPathLen;
     WC_BITFIELD selfSigned:1;
+#ifndef IGNORE_NAME_CONSTRAINTS
+    /*!
+     * \brief Mirrors DecodedCert::extNameConstraintCrit and
+     *        DecodedCert::extNameConstraintHasUnsupported so the
+     *        nameConstraints state survives onto the CA Signer and is
+     *        available during chain verification.
+     *
+     * ConfirmNameConstraints() uses these flags to implement the RFC 5280
+     * 4.2.1.10 fail-closed requirement: when extNameConstraintCrit is set
+     * and extNameConstraintHasUnsupported is also set, verification fails
+     * rather than the unsupported constraint form being silently ignored.
+     *
+     * Co-located with selfSigned to share its bitfield storage word and
+     * avoid growing sizeof(Signer), which is load-bearing for
+     * PERSIST_CERT_CACHE.
+     */
+    WC_BITFIELD extNameConstraintCrit:1;
+    WC_BITFIELD extNameConstraintHasUnsupported:1;
+#endif
     const byte* publicKey;
     int     nameLen;
-    char*   name;                    /* common name */
+    const char*
+            name;                    /* common name */
 #ifndef IGNORE_NAME_CONSTRAINTS
     Base_entry* permittedNames;
     Base_entry* excludedNames;
@@ -2127,6 +2230,11 @@ struct Signer {
 #endif
 #ifdef HAVE_OCSP
     byte subjectKeyHash[KEYID_SIZE];
+    byte issuerKeyHash[KEYID_SIZE]; /* subject key hash of the immediate
+                                     * issuer CA (i.e. the parent that signed
+                                     * this cert), used to bind OCSP CertID
+                                     * issuerKeyHash matching during responder
+                                     * authorization checks */
 #endif
 #if defined(WOLFSSL_AKID_NAME) || defined(HAVE_CRL)
     byte serialHash[SIGNER_DIGEST_SIZE]; /* serial number hash */
@@ -2152,7 +2260,8 @@ struct Signer {
 /* used for having trusted peer certs rather then CA */
 struct TrustedPeerCert {
     int     nameLen;
-    char*   name;                    /* common name */
+    const char*
+            name;                    /* common name */
     #ifndef IGNORE_NAME_CONSTRAINTS
         Base_entry* permittedNames;
         Base_entry* excludedNames;
@@ -2244,6 +2353,10 @@ typedef enum MimeStatus
     #define SetAlgoID wc_SetAlgoID
     #define SetAsymKeyDer wc_SetAsymKeyDer
     #define CalcHashId wc_CalcHashId
+    #if defined(HAVE_OID_DECODING) || defined(WOLFSSL_ASN_PRINT) || \
+        defined(OPENSSL_ALL)
+        #define DecodeObjectId wc_DecodeObjectId
+    #endif
     #if defined(WOLFSSL_AKID_NAME) && !defined(GetCAByAKID)
         /* GetCAByAKID() has two implementations, a full implementation in
          * src/ssl.c, and a dummy implementation in wolfcrypt/src/asn.c for
@@ -2251,6 +2364,12 @@ typedef enum MimeStatus
          */
         #define GetCAByAKID wolfSSL_GetCAByAKID
     #endif
+    #define FillSigner wc_FillSigner
+    #define MakeSigner wc_MakeSigner
+    #define FreeSigner wc_FreeSigner
+    #define AllocDer wc_AllocDer
+    #define FreeDer wc_FreeDer
+    #define DecodeExtensionType wc_DecodeExtensionType
 #endif /* WOLFSSL_API_PREFIX_MAP */
 
 WOLFSSL_LOCAL int HashIdAlg(word32 oidSum);
@@ -2294,9 +2413,9 @@ WOLFSSL_LOCAL int DecodePolicyOID(char *out, word32 outSz, const byte *in,
                                   word32 inSz);
 WOLFSSL_LOCAL int EncodePolicyOID(byte *out, word32 *outSz,
                                   const char *in, void* heap);
-WOLFSSL_LOCAL int DecodeExtensionType(const byte* input, word32 length,
-                                      word32 oid, byte critical,
-                                      DecodedCert* cert, int *isUnknownExt);
+WOLFSSL_TEST_VIS int DecodeExtensionType(const byte* input, word32 length,
+                                         word32 oid, byte critical,
+                                         DecodedCert* cert, int *isUnknownExt);
 WOLFSSL_LOCAL int CheckCertSignaturePubKey(const byte* cert, word32 certSz,
         void* heap, const byte* pubKey, word32 pubKeySz, int pubKeyOID);
 #if defined(OPENSSL_EXTRA) || defined(WOLFSSL_SMALL_CERT_VERIFY)
@@ -2360,9 +2479,9 @@ WOLFSSL_LOCAL int wc_GetPubX509(DecodedCert* cert, int verify, int* badDate);
 WOLFSSL_LOCAL const byte* OidFromId(word32 id, word32 type, word32* oidSz);
 WOLFSSL_LOCAL Signer* findSignerByKeyHash(Signer *list, byte *hash);
 WOLFSSL_LOCAL Signer* findSignerByName(Signer *list, byte *hash);
-WOLFSSL_LOCAL int FillSigner(Signer* signer, DecodedCert* cert, int type, DerBuffer *der);
-WOLFSSL_LOCAL Signer* MakeSigner(void* heap);
-WOLFSSL_LOCAL void    FreeSigner(Signer* signer, void* heap);
+WOLFSSL_TEST_VIS int FillSigner(Signer* signer, DecodedCert* cert, int type, DerBuffer *der);
+WOLFSSL_TEST_VIS Signer* MakeSigner(void* heap);
+WOLFSSL_TEST_VIS void    FreeSigner(Signer* signer, void* heap);
 WOLFSSL_LOCAL void    FreeSignerTable(Signer** table, int rows, void* heap);
 WOLFSSL_LOCAL void    FreeSignerTableType(Signer** table, int rows, byte type,
                                           void* heap);
@@ -2417,6 +2536,7 @@ WOLFSSL_LOCAL int GetFormattedTime_ex(void* currTime, byte* buf, word32 len, byt
 WOLFSSL_LOCAL int ExtractDate(const unsigned char* date, unsigned char format,
                                 wolfssl_tm* certTime, int* idx, int len);
 WOLFSSL_LOCAL int DateGreaterThan(const struct tm* a, const struct tm* b);
+WOLFSSL_LOCAL int ValidateGmtime(struct tm* inTime);
 WOLFSSL_LOCAL int wc_ValidateDate(const byte* date, byte format, int dateType,
                                   int len);
 #ifndef NO_ASN_TIME
@@ -2481,7 +2601,7 @@ WOLFSSL_LOCAL word32 wc_oid_sum(const byte* input, int length);
 #endif
 #if defined(HAVE_OID_DECODING) || defined(WOLFSSL_ASN_PRINT) || \
     defined(OPENSSL_ALL)
-    WOLFSSL_LOCAL int DecodeObjectId(const byte* in, word32 inSz,
+    WOLFSSL_TEST_VIS int DecodeObjectId(const byte* in, word32 inSz,
         word16* out, word32* outSz);
 #endif
 WOLFSSL_LOCAL int GetASNObjectId(const byte* input, word32* inOutIdx, int* len,
@@ -2605,11 +2725,11 @@ WOLFSSL_LOCAL int wc_EncryptedInfoParse(EncryptedInfo* info,
 WOLFSSL_LOCAL int PemToDer(const unsigned char* buff, long longSz, int type,
                           DerBuffer** pDer, void* heap, EncryptedInfo* info,
                           int* keyFormat);
-WOLFSSL_LOCAL int AllocDer(DerBuffer** der, word32 length, int type,
+WOLFSSL_API int AllocDer(DerBuffer** der, word32 length, int type,
     void* heap);
 WOLFSSL_LOCAL int AllocCopyDer(DerBuffer** der, const unsigned char* buff,
     word32 length, int type, void* heap);
-WOLFSSL_LOCAL void FreeDer(DerBuffer** der);
+WOLFSSL_API void FreeDer(DerBuffer** der);
 
 #ifdef WOLFSSL_ASN_PARSE_KEYUSAGE
 WOLFSSL_LOCAL int ParseKeyUsageStr(const char* value, word16* keyUsage,
@@ -2642,16 +2762,33 @@ enum cert_enums {
     DILITHIUM_LEVEL2_KEY     = 18,
     DILITHIUM_LEVEL3_KEY     = 19,
     DILITHIUM_LEVEL5_KEY     = 20,
-    ML_DSA_LEVEL2_KEY        = 21,
-    ML_DSA_LEVEL3_KEY        = 22,
-    ML_DSA_LEVEL5_KEY        = 23,
-    SPHINCS_FAST_LEVEL1_KEY  = 24,
-    SPHINCS_FAST_LEVEL3_KEY  = 25,
-    SPHINCS_FAST_LEVEL5_KEY  = 26,
-    SPHINCS_SMALL_LEVEL1_KEY = 27,
-    SPHINCS_SMALL_LEVEL3_KEY = 28,
-    SPHINCS_SMALL_LEVEL5_KEY = 29
+    ML_DSA_44_KEY            = 21,
+    ML_DSA_65_KEY            = 22,
+    ML_DSA_87_KEY            = 23,
+    SLH_DSA_SHA2_128S_KEY    = 24,
+    SLH_DSA_SHA2_128F_KEY    = 25,
+    SLH_DSA_SHA2_192S_KEY    = 26,
+    SLH_DSA_SHA2_192F_KEY    = 27,
+    SLH_DSA_SHA2_256S_KEY    = 28,
+    SLH_DSA_SHA2_256F_KEY    = 29,
+    SLH_DSA_SHAKE_128S_KEY   = 30,
+    SLH_DSA_SHAKE_128F_KEY   = 31,
+    SLH_DSA_SHAKE_192S_KEY   = 32,
+    SLH_DSA_SHAKE_192F_KEY   = 33,
+    SLH_DSA_SHAKE_256S_KEY   = 34,
+    SLH_DSA_SHAKE_256F_KEY   = 35,
+    LMS_KEY                  = 36,
+    XMSS_KEY                 = 37,
+    XMSSMT_KEY               = 38
 };
+
+#ifndef WOLFSSL_NO_DILITHIUM_LEGACY_NAMES
+/* Legacy LEVEL2/3/5 spellings for the pre-standardization names. Will
+ * be removed alongside the dilithium.h shim. */
+#define ML_DSA_LEVEL2_KEY ML_DSA_44_KEY
+#define ML_DSA_LEVEL3_KEY ML_DSA_65_KEY
+#define ML_DSA_LEVEL5_KEY ML_DSA_87_KEY
+#endif
 
 #endif /* WOLFSSL_CERT_GEN */
 
@@ -2735,8 +2872,8 @@ struct CertStatus {
 #ifdef WOLFSSL_OCSP_PARSE_STATUS
     WOLFSSL_ASN1_TIME thisDateParsed;
     WOLFSSL_ASN1_TIME nextDateParsed;
-    byte* thisDateAsn;
-    byte* nextDateAsn;
+    const byte* thisDateAsn;
+    const byte* nextDateAsn;
 #endif
     byte revocationDate[MAX_DATE_SIZE]; /* ASN-formatted revocation time */
     word32 revocationDateSz;
@@ -2800,7 +2937,8 @@ enum responderIdType {
 struct OcspResponse {
     int     responseStatus;  /* return code from Responder */
 
-    byte*   response;        /* Pointer to beginning of OCSP Response */
+    const byte*
+            response;        /* Pointer to beginning of OCSP Response */
     word32  responseSz;      /* length of the OCSP Response */
 
     enum responderIdType responderIdType;
@@ -2814,19 +2952,23 @@ struct OcspResponse {
     byte    producedDateFormat; /* format of the producedDate */
     byte    producedDateSz;
 
-    byte*   cert;
+    const byte*
+            cert;
     word32  certSz;
 
-    byte*   sig;             /* Pointer to sig in source */
+    const byte*
+            sig;             /* Pointer to sig in source */
     word32  sigSz;           /* Length in octets for the sig */
     word32  sigOID;          /* OID for hash used for sig */
 
-    byte* sigParams;
-    word32 sigParamsSz;
+    const byte*
+            sigParams;
+    word32  sigParamsSz;
 
     OcspEntry* single;       /* chain of OCSP single responses */
 
-    byte*   nonce;           /* pointer to nonce inside ASN.1 response */
+    const byte*
+            nonce;           /* pointer to nonce inside ASN.1 response */
     int     nonceSz;         /* length of the nonce string */
 
     byte*   source;          /* pointer to source buffer, not owned */
@@ -2881,17 +3023,17 @@ WOLFSSL_LOCAL int OcspDecodeCertID(const byte* input, word32* inOutIdx, word32 i
 #ifdef HAVE_OCSP_RESPONDER
 /* Revocation reason codes from RFC 5280 */
 enum WC_CRL_Reason {
-    CRL_REASON_UNSPECIFIED             = 0,
-    CRL_REASON_KEY_COMPROMISE          = 1,
-    CRL_REASON_CA_COMPROMISE           = 2,
-    CRL_REASON_AFFILIATION_CHANGED     = 3,
-    CRL_REASON_SUPERSEDED              = 4,
-    CRL_REASON_CESSATION_OF_OPERATION  = 5,
-    CRL_REASON_CERTIFICATE_HOLD        = 6,
+    WC_CRL_REASON_UNSPECIFIED             = 0,
+    WC_CRL_REASON_KEY_COMPROMISE          = 1,
+    WC_CRL_REASON_CA_COMPROMISE           = 2,
+    WC_CRL_REASON_AFFILIATION_CHANGED     = 3,
+    WC_CRL_REASON_SUPERSEDED              = 4,
+    WC_CRL_REASON_CESSATION_OF_OPERATION  = 5,
+    WC_CRL_REASON_CERTIFICATE_HOLD        = 6,
     /* value 7 is not used */
-    CRL_REASON_REMOVE_FROM_CRL         = 8,
-    CRL_REASON_PRIVILEGE_WITHDRAWN     = 9,
-    CRL_REASON_AA_COMPROMISE           = 10
+    WC_CRL_REASON_REMOVE_FROM_CRL         = 8,
+    WC_CRL_REASON_PRIVILEGE_WITHDRAWN     = 9,
+    WC_CRL_REASON_AA_COMPROMISE           = 10
 };
 
 /* Certificate status entry for a single certificate */
@@ -2985,8 +3127,9 @@ struct DecodedCRL {
     word32  sigParamsIndex;          /* start of signature parameters    */
     word32  sigParamsLength;         /* length of signature parameters   */
 #endif
-    byte*   signature;               /* pointer into raw source, not owned */
-    char    crlNumber[CRL_MAX_NUM_HEX_STR_SZ];      /* CRL number extension */
+    const byte*
+            signature;             /* pointer into raw source, not owned */
+    char    crlNumber[CRL_MAX_NUM_HEX_STR_SZ];   /* CRL number extension */
     byte    issuerHash[SIGNER_DIGEST_SIZE]; /* issuer name hash          */
     byte    crlHash[SIGNER_DIGEST_SIZE]; /* raw crl data hash            */
     byte    lastDate[MAX_DATE_SIZE]; /* last date updated  */
@@ -3076,13 +3219,20 @@ WOLFSSL_TEST_VIS int  wolfssl_local_MatchBaseName(int type, const char* name,
 WOLFSSL_TEST_VIS int  wolfssl_local_MatchIpSubnet(const byte* ip, int ipSz,
                                                   const byte* constraint,
                                                   int constraintSz);
+WOLFSSL_TEST_VIS int  wolfssl_local_MatchUriNameConstraint(const char* uri,
+                                                  int uriSz, const char* base,
+                                                  int baseSz);
+WOLFSSL_TEST_VIS int  wolfssl_local_MatchDnsConstraintWildcard(
+                                                  const char* name, int nameSz,
+                                                  const char* base, int baseSz,
+                                                  int permitted);
 #endif
 
 #if ((defined(HAVE_ED25519) && defined(HAVE_ED25519_KEY_IMPORT)) \
     || (defined(HAVE_CURVE25519) && defined(HAVE_CURVE25519_KEY_IMPORT)) \
     || (defined(HAVE_ED448) && defined(HAVE_ED448_KEY_IMPORT)) \
     || (defined(HAVE_CURVE448) && defined(HAVE_CURVE448_KEY_IMPORT)) \
-    || defined(HAVE_FALCON) || defined(HAVE_DILITHIUM) || defined(HAVE_SPHINCS))
+    || defined(HAVE_FALCON) || defined(WOLFSSL_HAVE_MLDSA) || defined(WOLFSSL_HAVE_SLHDSA))
 WOLFSSL_LOCAL int DecodeAsymKey_Assign(const byte* input, word32* inOutIdx,
     word32 inSz, const byte** seed, word32* seedLen, const byte** privKey,
     word32* privKeyLen, const byte** pubKey, word32* pubKeyLen,
@@ -3097,6 +3247,16 @@ WOLFSSL_LOCAL int DecodeAsymKey(const byte* input, word32* inOutIdx,
 WOLFSSL_TEST_VIS int SetAsymKeyDer(const byte* privKey, word32 privKeyLen,
     const byte* pubKey, word32 pubKeyLen, byte* output, word32 outLen,
     int keyType);
+#endif
+
+#ifdef WOLFSSL_HAVE_SLHDSA
+/* SLH-DSA OID mapping helpers shared with x509.c, ssl.c, wc_slhdsa.c, etc.
+ * All four are backed by a single static map in asn.c so the per-variant
+ * gating (WOLFSSL_SLHDSA_PARAM_NO_*) lives in one place. */
+WOLFSSL_LOCAL int wc_SlhDsaOidToParam(int oid);
+WOLFSSL_LOCAL int wc_SlhDsaOidToCertType(int oid);
+WOLFSSL_LOCAL int wc_IsSlhDsaOid(int oid);
+WOLFSSL_LOCAL int wc_SlhDsaParamToOid(enum SlhDsaParam param);
 #endif
 
 #endif /* !NO_ASN */

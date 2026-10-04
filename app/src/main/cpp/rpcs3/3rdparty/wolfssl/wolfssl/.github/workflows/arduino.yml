@@ -48,18 +48,21 @@ name: Arduino CI Build (1 of 4) wolfssl
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ '**', 'master', 'main', 'release/**' ]
+    branches: [ 'release/**' ]
     paths:
       # Specific to this Arduino CI Build (1 of 4)
       - '.github/workflows/arduino.yml'
+      - 'examples/configs/user_settings_arduino.h'
       - 'IDE/ARDUINO/**'
       - 'src/**'
       - 'wolfcrypt/**'
       - 'wolfssl/**'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ '**' ]
     paths:
       - '.github/workflows/arduino.yml'
+      - 'examples/configs/user_settings_arduino.h'
       - 'IDE/ARDUINO/**'
       - 'src/**'
       - 'wolfcrypt/**'
@@ -76,42 +79,51 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository_owner == 'wolfssl'
-    runs-on: ubuntu-latest
+    if: ${{ (github.repository_owner == 'wolfssl') && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
+    runs-on: ubuntu-24.04
+    # Teensy is allowed to fail: its board index lives at pjrc.com, which is
+    # chronically unreachable from GitHub Actions runner egress IPs (DNS
+    # timeouts / connection refused). A pjrc.com outage should not block PRs
+    # on the 11 other boards. Track persistent red here and revisit if pjrc.com
+    # access stabilizes or we mirror the index ourselves.
+    continue-on-error: ${{ matrix.fqbn == 'teensy:avr:teensy40' }}
 
     strategy:
       fail-fast: false
       matrix:
         fqbn:
-          # When editing this list, be sure to also edit file: board_list.txt
-          #   The compile-all-examples.sh optionally takes a FQBN parameter to
-          #   optionally compile all examples ONLY for the respective fully qualified board name.
-          # See https://github.com/wolfSSL/wolfssl-examples/blob/master/Arduino/sketches/board_list.txt
+          # Each matrix entry passes its FQBN to compile-all-examples.sh, which looks up
+          # build settings for that single board in board_list.txt (fetched at runtime from
+          # wolfssl-examples). When ADDING a board here, the FQBN must also exist in:
+          #  https://github.com/wolfSSL/wolfssl-examples/blob/master/Arduino/sketches/board_list.txt
+          # Removing a board from this matrix does NOT require any wolfssl-examples change;
+          # board_list.txt is the broader "supported boards" catalog, not the CI matrix.
+          #
+          # Matrix is intentionally trimmed: boards sharing a vendor:arch core also share
+          # toolchain and headers, so additional boards in the same core mostly re-exercise
+          # variant pin maps rather than wolfSSL code. Kept boards bracket the memory
+          # envelope (uno=2KB RAM, mega=8KB RAM) and cover each distinct toolchain/ISA.
 
-          - arduino:avr:ethernet
-          - arduino:avr:leonardoeth
-          - arduino:avr:mega
-          - arduino:avr:nano
-          - arduino:avr:uno
-          - arduino:avr:yun
-          - arduino:samd:mkr1000
-          - arduino:samd:mkrfox1200
+          - arduino:avr:uno                       # smallest AVR (2KB RAM, 32KB flash)
+          - arduino:avr:mega                      # largest AVR (8KB RAM, 256KB flash)
+          - arduino:samd:mkr1000                  # Cortex-M0+ representative
           - arduino:mbed_edge:edge_control
-          - arduino:mbed_portenta:envie_m7
-          - arduino:mbed_portenta:portenta_x8
-          - arduino:renesas_uno:unor4wifi
-          - arduino:sam:arduino_due_x
-          - arduino:samd:arduino_zero_native
-          - arduino:samd:tian
-          - esp32:esp32:esp32
-          - esp32:esp32:esp32s2
-          - esp32:esp32:esp32s3
-          - esp32:esp32:esp32c3
-          - esp32:esp32:esp32c6
-          - esp32:esp32:esp32h2
+          - arduino:mbed_portenta:envie_m7        # Cortex-M7 Portenta
+          - arduino:renesas_uno:unor4wifi         # Renesas RA4M1
+          - arduino:sam:arduino_due_x             # Cortex-M3
+          - esp32:esp32:esp32                     # Xtensa LX6
+          - esp32:esp32:esp32s3                   # Xtensa LX7
+          - esp32:esp32:esp32c3                   # RISC-V representative
           - esp8266:esp8266:generic
           - teensy:avr:teensy40
 
+          # Dropped (redundant within same core):
+          #   arduino:avr:{ethernet,leonardoeth,nano,yun}        - same toolchain as uno
+          #   arduino:samd:{mkrfox1200,arduino_zero_native,tian} - same toolchain as mkr1000
+          #   arduino:mbed_portenta:portenta_x8                  - same core as envie_m7
+          #   esp32:esp32:esp32s2                                - Xtensa LX7, covered by s3
+          #   esp32:esp32:{esp32c6,esp32h2}                      - RISC-V, covered by c3
+          #
           # Not yet supported, not in standard library
           # - esp32:esp32:nano_nora
 
@@ -130,7 +142,7 @@ jobs:
           df -h
 
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Arduino CLI
         run: |
@@ -185,44 +197,25 @@ jobs:
         run: |
           CORE_ID="$(echo '${{ matrix.fqbn }}' | cut -d: -f1-2)"
           echo "CORE_ID=$CORE_ID" >> "$GITHUB_ENV"
+          # Third-party board_manager index for the cores that need one. Scoped
+          # to the one CORE_ID that uses it: arduino-cli re-reads every index on
+          # each call and fails if any is unreachable, so an unconditional URL
+          # would make all jobs depend on pjrc.com / esp8266.com. Used only on
+          # the online-install fallback; the ghcr bundle already carries it.
+          case "$CORE_ID" in
+            teensy:avr)      echo "BM_URL=https://www.pjrc.com/teensy/package_teensy_index.json" >> "$GITHUB_ENV" ;;
+            esp8266:esp8266) echo "BM_URL=https://arduino.esp8266.com/stable/package_esp8266com_index.json" >> "$GITHUB_ENV" ;;
+            *)               echo "BM_URL=" >> "$GITHUB_ENV" ;;
+          esac
 
-      - name: Setup Arduino CLI
-        run: |
-          arduino-cli config init
-
-          # wait 10 minutes for big downloads (or use 0 for no limit)
-          arduino-cli config set network.connection_timeout 600s
-
-          arduino-cli config add board_manager.additional_urls https://www.pjrc.com/teensy/package_teensy_index.json
-          arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
-          arduino-cli core update-index
-
-          echo "CORE_ID: $CORE_ID"
-          arduino-cli core install "$CORE_ID"
-
-          # The above is instead of:
-          # arduino-cli core install esp32:esp32            # ESP32
-          # arduino-cli core install arduino:avr            # Arduino Uno, Mega, Nano
-          # arduino-cli core install arduino:sam            # Arduino Due
-          # arduino-cli core install arduino:samd           # Arduino Zero
-          # arduino-cli core install teensy:avr             # PJRC Teensy
-          # arduino-cli core install esp8266:esp8266        # ESP8266
-          # arduino-cli core install arduino:mbed_nano      # nanorp2040connect
-          # arduino-cli core install arduino:mbed_portenta  # portenta_h7_m7
-          # arduino-cli core install arduino:mbed_edge
-          # arduino-cli core install arduino:renesas_uno
-
-          # For reference:
-
-          # mbed nano not yet tested
-          # sudo "/home/$USER/.arduino15/packages/arduino/hardware/mbed_nano/4.2.4/post_install.sh"
-
-          # Always install networking (not part of FQBN matrix)
-          # The first one also creates directory: /home/runner/Arduino/libraries
-          arduino-cli lib install "ArduinoJson"           # Example dependency
-          arduino-cli lib install "WiFiNINA"              # ARDUINO_SAMD_NANO_33_IOT
-          arduino-cli lib install "Ethernet"              # Install Ethernet library
-          arduino-cli lib install "Bridge"                # Pseudo-network for things like arduino:samd:tian
+      # Restore the core + toolchain + shared libraries from the prebuilt ghcr
+      # bundle (arduino-cores-image), falling back to `arduino-cli core install`
+      # when it is unavailable. Replaces the old per-core actions/cache layer.
+      - name: Install Arduino core and libraries
+        uses: ./.github/actions/install-arduino-core
+        with:
+          core-id: ${{ env.CORE_ID }}
+          board-manager-url: ${{ env.BM_URL }}
 
       - name: Set Job Environment Variables
         run: |
@@ -248,27 +241,6 @@ jobs:
 
           # WOLFSSL_EXAMPLES_ROOT is the repo root, not example location
           echo "WOLFSSL_EXAMPLES_ROOT = $WOLFSSL_EXAMPLES_ROOT"
-
-      - name: Cache Arduino Packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.arduino15
-            ~/.cache/arduino
-            # Exclude staging directory from cache to save space
-            !~/.arduino15/staging
-
-            # Arduino libraries
-            # Specific to Arduino CI Build (2 of 4) Arduinbo Release wolfSSL for Local Examples
-            # Include all libraries, as the latest Arduino-wolfSSL will only change upon release.
-            ~/Arduino/libraries
-            # Ensure wolfssl is not cached, we're always using the latest. See separate cache.
-            !~/Arduino/libraries/wolfssl
-          key: arduino-${{ runner.os }}-${{ env.CORE_ID }}-${{ hashFiles('Arduino/sketches/board_list.txt') }}
-
-          restore-keys: |
-               arduino-${{ runner.os }}-${{ env.CORE_ID }}-
-               arduino-${{ runner.os }}-
 
       - name: Get wolfssl-examples
         run: |

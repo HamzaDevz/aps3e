@@ -21,18 +21,18 @@ static PyObject *ahrs_settings_new(PyTypeObject *subtype, PyObject *args, PyObje
         "gyroscope_range",
         "acceleration_rejection",
         "magnetic_rejection",
-        "recovery_trigger_period",
+        "rejection_timeout",
         NULL, /* sentinel */
     };
 
-    if (PyArg_ParseTupleAndKeywords(args, kwds, "|fiffffI", kwlist,
+    if (PyArg_ParseTupleAndKeywords(args, kwds, "|fifffff", kwlist,
                                     &settings.sampleRate,
                                     &convention_int,
                                     &settings.gain,
                                     &settings.gyroscopeRange,
                                     &settings.accelerationRejection,
                                     &settings.magneticRejection,
-                                    &settings.recoveryTriggerPeriod) == 0) {
+                                    &settings.rejectionTimeout) == 0) {
         return NULL;
     }
 
@@ -152,18 +152,18 @@ static int ahrs_settings_set_magnetic_rejection(AhrsSettings *self, PyObject *va
     return 0;
 }
 
-static PyObject *ahrs_settings_get_recovery_trigger_period(AhrsSettings *self) {
-    return PyLong_FromUnsignedLong((unsigned long) self->wrapped.recoveryTriggerPeriod);
+static PyObject *ahrs_settings_get_rejection_timeout(AhrsSettings *self) {
+    return PyFloat_FromDouble((double) self->wrapped.rejectionTimeout);
 }
 
-static int ahrs_settings_set_recovery_trigger_period(AhrsSettings *self, PyObject *value, void *closure) {
-    const unsigned int recovery_trigger_period = (unsigned int) PyLong_AsUnsignedLong(value);
+static int ahrs_settings_set_rejection_timeout(AhrsSettings *self, PyObject *value, void *closure) {
+    const float rejection_timeout = (float) PyFloat_AsDouble(value);
 
     if (PyErr_Occurred()) {
         return -1;
     }
 
-    self->wrapped.recoveryTriggerPeriod = recovery_trigger_period;
+    self->wrapped.rejectionTimeout = rejection_timeout;
     return 0;
 }
 
@@ -174,7 +174,7 @@ static PyGetSetDef ahrs_settings_get_set[] = {
     {"gyroscope_range", (getter) ahrs_settings_get_gyroscope_range, (setter) ahrs_settings_set_gyroscope_range, "", NULL},
     {"acceleration_rejection", (getter) ahrs_settings_get_acceleration_rejection, (setter) ahrs_settings_set_acceleration_rejection, "", NULL},
     {"magnetic_rejection", (getter) ahrs_settings_get_magnetic_rejection, (setter) ahrs_settings_set_magnetic_rejection, "", NULL},
-    {"recovery_trigger_period", (getter) ahrs_settings_get_recovery_trigger_period, (setter) ahrs_settings_set_recovery_trigger_period, "", NULL},
+    {"rejection_timeout", (getter) ahrs_settings_get_rejection_timeout, (setter) ahrs_settings_set_rejection_timeout, "", NULL},
     {NULL} /* sentinel */
 };
 

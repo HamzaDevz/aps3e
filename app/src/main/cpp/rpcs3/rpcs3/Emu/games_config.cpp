@@ -4,7 +4,7 @@
 #include "util/yaml.hpp"
 #include "Utilities/File.h"
 
-#include "Loader/iso.h"
+#include "Loader/ISO.h"
 
 LOG_CHANNEL(cfg_log, "CFG");
 
@@ -59,6 +59,14 @@ games_config::result games_config::add_game(const std::string& key, const std::s
 #else
 		return add_game(key, iso_dev->get_loaded_iso());
 #endif
+	}
+
+	if (fs::is_drive_name(path))
+	{
+		// Restore the trailing delimiter trimmed by the caller if the game is on the root of a raw device (e.g. "E:/"),
+		// which is also the form provided by "rpcs3::utils::get_games_dir()" and the one built by "GetBdvdDir()", so
+		// that the same title is always registered with the very same path
+		return add_game(key, path + '/');
 	}
 
 	std::lock_guard lock(m_mutex);

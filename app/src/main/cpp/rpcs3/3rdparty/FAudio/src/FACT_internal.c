@@ -549,8 +549,20 @@ static bool handle_instance_limit(FACTCue *cue, FACTAudioCategory *category)
 		if (cursor == cue || !cursor->playingSound || (cursor->state & (FACT_STATE_STOPPING | FACT_STATE_STOPPED)))
 			continue;
 
-		if (category && category != &engine->categories[cursor->playingSound->sound->category])
-			continue;
+		if (category)
+		{
+			if (category != &engine->categories[cursor->playingSound->sound->category])
+			{
+				continue;
+			}
+		}
+		else
+		{
+			if (cursor->index != cue->index)
+			{
+				continue;
+			}
+		}
 
 		/* FIXME: How does QUEUE differ from REPLACE_OLDEST? */
 		if (behaviour == MAX_INSTANCE_BEHAVIOR_QUEUE
@@ -1824,7 +1836,7 @@ void FACT_INTERNAL_OnBufferEnd(FAudioVoiceCallback *callback, void* pContext)
 		c->wave->parentBank->parentEngine->pReadFile,
 		c->wave->parentBank->parentEngine->pGetOverlappedResult,
 		c->wave->parentBank->io,
-		c->wave->streamOffset,
+		c->wave->parentBank->file_offset + c->wave->streamOffset,
 		c->wave->parentBank->packetSize,
 		&c->wave->parentBank->packetBuffer,
 		&c->wave->parentBank->packetBufferLen,
@@ -3035,6 +3047,7 @@ uint32_t FACT_INTERNAL_ParseWaveBank(
 	wb->waveLock = FAudio_PlatformCreateMutex();
 	wb->packetSize = packetSize;
 	wb->io = io;
+	wb->file_offset = offset;
 
 	/* WaveBank Data */
 	SEEKSET(header.Segments[FACT_WAVEBANK_SEGIDX_BANKDATA].dwOffset)

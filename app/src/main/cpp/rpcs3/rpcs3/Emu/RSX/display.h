@@ -19,8 +19,6 @@ using Window  = unsigned long;
 using display_handle_t = HWND;
 #elif defined(__APPLE__)
 using display_handle_t = void*; // NSView
-#elif defined(__ANDROID__)
-using display_handle_t = void*; // struct ANativeWindow*
 #else
 #include <variant>
 using display_handle_t = std::variant<
@@ -30,6 +28,8 @@ using display_handle_t = std::variant<
 	std::pair<Display*, Window>
 #elif defined(HAVE_WAYLAND)
 	std::pair<wl_display*, wl_surface*>
+#elif defined(ANDROID)
+	struct ANativeWindow*
 #endif
 >;
 #endif

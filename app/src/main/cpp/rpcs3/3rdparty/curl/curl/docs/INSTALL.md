@@ -13,12 +13,30 @@ document does not describe how to install curl or libcurl using such a binary
 package. This document describes how to compile, build and install curl and
 libcurl from [source code](https://curl.se/download.html).
 
+## Building from source
+
+You can use autotools or CMake to build curl from source. They work equally
+well and have close to feature parity.
+
+autotools' advantages are wide portability and the Unix philosophy, while
+CMake typically has faster configuration and build times, and supports MSVC.
+
+Option defaults and dependency detection details may differ.
+
+With both build tools, some features require Perl, and the pytest test suite
+requires Python.
+
+You can find live examples for both tools and many build cases in curl's CI
+scripts: `.github/workflows/*.yml`, `.circleci/*.yml` and `appveyor.*` (in the
+Git repository only). For CMake-specific instructions, see
+[INSTALL-CMAKE.md](https://github.com/curl/curl/blob/master/docs/INSTALL-CMAKE.md).
+
 ## Building using vcpkg
 
 You can download and install curl and libcurl using
 the [vcpkg](https://github.com/Microsoft/vcpkg) dependency manager:
 
-    git clone https://github.com/Microsoft/vcpkg
+    git clone --depth 1 https://github.com/Microsoft/vcpkg
     cd vcpkg
     ./bootstrap-vcpkg.sh
     ./vcpkg integrate install
@@ -128,12 +146,16 @@ Building statically is not for the faint of heart.
 
 ## Debug
 
-If you are a curl developer and use gcc, you might want to enable more debug
-options with the `--enable-debug` option.
+If you are a curl developer and use gcc, you might want to enable curl debug
+features (for developing curl) with the `--enable-debug` option.
 
 curl can be built to use a whole range of libraries to provide various useful
 services, and configure tries to auto-detect a decent default. If you want to
 alter it, you can select how to deal with each individual library.
+
+To debug the build itself, you can set the environment variable
+`CURL_TRACE_PKG_CONFIG` to a non-empty value to enable detailed trace
+information and verbose errors from `pkg-config` module detection invocations.
 
 ## Select TLS backend
 
@@ -142,7 +164,7 @@ These options are provided to select the TLS backend to use.
 - AmiSSL: `--with-amissl`
 - GnuTLS: `--with-gnutls`.
 - mbedTLS: `--with-mbedtls`
-- OpenSSL: `--with-openssl` (also for BoringSSL, AWS-LC, LibreSSL, and quictls)
+- OpenSSL: `--with-openssl` (also for AWS-LC, BoringSSL, LibreSSL, and quictls)
 - Rustls: `--with-rustls`
 - Schannel: `--with-schannel`
 - wolfSSL: `--with-wolfssl`
@@ -157,7 +179,7 @@ runtime when curl starts up.
 
 ### Selecting TLS Trust Anchors Defaults
 
-Verifying a server certificate established a chain of trust that needs to
+Verifying a server certificate establishes a chain of trust that needs to
 start somewhere. Those "root" certificates make the set of Trust Anchors.
 
 While the build system tries to find good defaults on the platform you
@@ -202,8 +224,8 @@ Building for Windows Vista/Server 2008 is required as a minimum.
 
 You can build curl with:
 
-- Microsoft Visual Studio 2010 v10.0 or later (`_MSC_VER >= 1600`)
-- MinGW-w64 3.0 or later (`__MINGW64_VERSION_MAJOR >= 3`)
+- Microsoft Visual Studio 2010 10.0 or greater (`_MSC_VER >= 1600`)
+- mingw-w64 3.0 or greater (`__MINGW64_VERSION_MAJOR >= 3`)
 
 ## Building Windows DLLs and C runtime (CRT) linkage issues
 
@@ -217,7 +239,8 @@ understanding if you are not going to follow the advice given above.
 
 - [How To Use the C Runtime](https://learn.microsoft.com/troubleshoot/developer/visualstudio/cpp/libraries/use-c-run-time)
 - [Runtime Library Compiler Options](https://learn.microsoft.com/cpp/build/reference/md-mt-ld-use-run-time-library)
-- [Potential Errors Passing CRT Objects Across DLL Boundaries](https://learn.microsoft.com/cpp/c-runtime-library/potential-errors-passing-crt-objects-across-dll-boundaries)
+- [Potential Errors Passing CRT Objects
+  Across DLL Boundaries](https://learn.microsoft.com/cpp/c-runtime-library/potential-errors-passing-crt-objects-across-dll-boundaries)
 
 If your app is misbehaving in some strange way, or it is suffering from memory
 corruption, before asking for further help, please try first to rebuild every
@@ -228,58 +251,56 @@ If you get linkage errors read section 5.7 of the FAQ document.
 
 ## Cygwin
 
-Almost identical to the Unix installation. Essentially run the configure script in the
-curl source tree root with `sh configure`, then run `make`.
+Almost identical to the Unix installation. Download the `curl` source code,
+then essentially run the configure script in the curl source tree root with
+`sh configure`, then run `make`.
 
-To expand on building with `cygwin` first ensure it is in your path, and there are no
-conflicting tools (*i.e. Chocolatey with sed package*). If so move `cygwin` ahead of any items
-in your path that would conflict with `cygwin` commands, making sure you have the `sh`
-executable in `/bin/` or you see the configure fail toward the end.
+To expand on building with Cygwin first ensure it is in your path, and
+there are no conflicting tools (*i.e. Chocolatey with sed package*). If so
+move Cygwin ahead of any items in your path that would conflict with
+Cygwin commands, making sure you have the `sh` executable in `/bin/` or
+you see the configure fail toward the end.
 
-Download the setup installer from
-[`cygwin`](https://cygwin.com/) to begin. Additional `cygwin`
-packages are needed for the install. For more on installing packages visit
-[`cygwin setup`](https://cygwin.com/faq/faq.html#faq.setup.cli).
+Download the setup installer from [Cygwin](https://cygwin.com/) to begin.
+Additional Cygwin packages are needed for the install. For more on
+installing packages visit
+[Cygwin Setup](https://cygwin.com/faq/faq.html#faq.setup.cli).
 
-Either run setup-x86_64.exe, then search and select packages individually, or try:
+Either run `setup-x86_64.exe`, then search and select packages individually,
+or try:
 
-    setup-x86_64.exe -P binutils -P gcc-core -P libpsl-devel -P libtool -P perl -P make
+    setup-x86_64.exe --no-admin -q -I -P binutils,gcc-core,libpsl-devel,libtool,perl,make
 
-If the latter, matching packages should appear in the install rows (*is fickle though*) after selecting
-the download site i.e. `https://mirrors.kernel.org/`. In either case, follow the GUI prompts
-until you reach the "Select Packages" window; then select packages, click next, and finish
-the `cygwin` package installation.
-
-Download the latest version of the `cygwin` packages required (*and suggested*) for a successful install:
+Expand the below details to show the list of required packages for a
+successful Cygwin install:
 
 <details>
     <summary>Package List</summary>
 
 ```
-  binutil - required
-  gcc-core - required
-  libpsl-devel - required
-  libtool - required
-  perl - required
-  make - required
-  - NOTE - if there is an error regarding make, open the cygwin terminal, and run:
-    ln -s /usr/bin/make /usr/bin/gmake
+binutils
+gcc-core
+libpsl-devel
+libtool
+perl
+make
 ```
 
 </details>
 
-Once all the packages have been installed, begin the process of installing curl from the source code:
+Once all the packages have been installed, begin the process of installing
+curl from the source code:
 
 <details>
     <summary>configure_options</summary>
 
 ```
-    --with-gnutls
-    --with-mbedtls
-    --with-openssl (also works for OpenSSL forks)
-    --with-rustls
-    --with-wolfssl
-    --without-ssl
+--with-gnutls
+--with-mbedtls
+--with-openssl (also works for OpenSSL forks)
+--with-rustls
+--with-wolfssl
+--without-ssl
 ```
 
 </details>
@@ -287,15 +308,20 @@ Once all the packages have been installed, begin the process of installing curl 
 1. `sh configure <configure_options>`
 2. `make`
 
-If any error occurs during curl installation, try:
+> [!Note]
+> If an error occurs during the installation, then try:
 
-- reinstalling the required `cygwin` packages from the list above
-- temporarily move `cygwin` to the top of your path
-- install all of the suggested `cygwin` packages
+- Using `cmake` to configure and/or build
+- Using `ninja` to build (much faster)
+- Reinstalling the required Cygwin packages from the list above without
+  passing `-I` to `setup-x86_64`
+- Temporarily moving Cygwin to the top of your path
+- Installing all of the Cygwin build packages using
+  `setup-x86_64 --build-depends curl`
 
 ## MS-DOS
 
-You can use either autotools or cmake:
+You can use either autotools or CMake:
 
 ```sh
 ./configure \
@@ -326,7 +352,7 @@ cmake . \
 
 Notes:
 
-- Requires DJGPP 2.04 or upper.
+- Requires DJGPP 2.04 or greater.
 
 - Compile Watt-32 (and OpenSSL) with the same version of DJGPP. Otherwise
   things go wrong because things like FS-extensions and `errno` values have
@@ -334,7 +360,7 @@ Notes:
 
 ## AmigaOS
 
-You can use either autotools or cmake:
+You can use either autotools or CMake:
 
 ```sh
 ./configure \
@@ -478,7 +504,7 @@ install `libssl.a` and `libcrypto.a` to `$TOOLCHAIN/sysroot/usr/lib` and copy
 for Android using OpenSSL like this:
 
 ```sh
-# For OpenSSL/BoringSSL. In general, you need to the SSL/TLS layer's transitive
+# For BoringSSL/OpenSSL. In general, you need to the SSL/TLS layer's transitive
 # dependencies if you are linking statically.
 LIBS='-lssl -lcrypto -lc++'
 ./configure --host aarch64-linux-android --with-pic --disable-shared --with-openssl="$TOOLCHAIN/sysroot/usr"
@@ -540,10 +566,10 @@ export CC=ppc_405-gcc
 export NM=ppc_405-nm
 
 ./configure \
-  --target=powerpc-hardhat-linux
-  --host=powerpc-hardhat-linux
-  --build=i586-pc-linux-gnu
-  --prefix=/opt/hardhat/devkit/ppc/405/target/usr/local
+  --target=powerpc-hardhat-linux \
+  --host=powerpc-hardhat-linux \
+  --build=i586-pc-linux-gnu \
+  --prefix=/opt/hardhat/devkit/ppc/405/target/usr/local \
   --exec-prefix=/usr/local
 ```
 
@@ -608,7 +634,6 @@ disabling support for some features (run `./configure --help` to see them all):
 - `--disable-proxy` (HTTP and SOCKS proxies)
 - `--disable-socketpair` (socketpair for asynchronous name resolving)
 - `--disable-threaded-resolver` (threaded name resolver)
-- `--disable-tls-srp` (Secure Remote Password authentication for TLS)
 - `--disable-unix-sockets` (Unix sockets)
 - `--disable-verbose` (eliminates debugging strings and error code strings)
 - `--disable-versioned-symbols` (versioned symbols)
@@ -619,7 +644,6 @@ disabling support for some features (run `./configure --help` to see them all):
 - `--without-ngtcp2` (HTTP/2 using ngtcp2)
 - `--without-zstd` (Zstd on-the-fly decompression)
 - `--without-libidn2` (internationalized domain names)
-- `--without-librtmp` (RTMP)
 - `--without-ssl` (SSL/TLS)
 - `--without-zlib` (gzip/deflate on-the-fly decompression)
 

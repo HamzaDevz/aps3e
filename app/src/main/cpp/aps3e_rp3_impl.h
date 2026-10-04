@@ -86,7 +86,7 @@
 #include "Crypto/sha1.h"
 
 
-#include "Loader/iso.h"
+#include "Loader/ISO.h"
 #include "Loader/PUP.h"
 #include "Loader/TAR.h"
 #include "Loader/PSF.h"
@@ -350,6 +350,7 @@ public:
     }
 
     void take_screenshot(std::vector<u8>&& sshot_data, u32 sshot_width, u32 sshot_height, bool is_bgra) {PR;}
+    void update_title(double fps = 0.0){PR;}
     //void take_screenshot(const std::vector<u8> sshot_data, u32 sshot_width, u32 sshot_height, bool is_bgra){PR;}
 };
 
@@ -544,8 +545,9 @@ public:
     dummy_video_source():video_source(){}
     virtual ~dummy_video_source(){}
 
-    void set_video_path(const std::string& video_path) override{}
-    void set_audio_path(const std::string& audio_path) override{}
+    void set_iso_path(const std::string& /*iso_path*/) override{}
+    void set_video_path(const std::string& /*video_path*/, bool /*video_in_archive*/) override{}
+    void set_audio_path(const std::string& /*audio_path*/, bool /*audio_in_archive*/) override{}
 
     void get_image(std::vector<u8>& data, int& w, int& h, int& ch, int& bpp) override{}
     bool has_new() const override { return m_has_new; }

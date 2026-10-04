@@ -25,23 +25,21 @@
  ***************************************************************************/
 #include "curl_setup.h"
 
+/* Reject URLs exceeding this length */
+#define MAX_URL_LEN 0xffff
+
 /*
- * Prototypes for library-wide functions provided by url.c
+ * Prototypes for library-wide functions
  */
 
-CURLcode Curl_init_do(struct Curl_easy *data, struct connectdata *conn);
+CURLcode Curl_init_transfer(struct Curl_easy *data, struct connectdata *conn);
 CURLcode Curl_open(struct Curl_easy **curl);
 void Curl_init_userdefined(struct Curl_easy *data);
 
 void Curl_freeset(struct Curl_easy *data);
 CURLcode Curl_uc_to_curlcode(CURLUcode uc);
 CURLcode Curl_close(struct Curl_easy **datap); /* opposite of Curl_open() */
-CURLcode Curl_connect(struct Curl_easy *data,
-                      bool *asyncp,
-                      bool *protocol_done);
-CURLcode Curl_setup_conn(struct Curl_easy *data,
-                         struct Curl_dns_entry *dns,
-                         bool *protocol_done);
+CURLcode Curl_connect(struct Curl_easy *data, bool *pconnected);
 void Curl_conn_free(struct Curl_easy *data, struct connectdata *conn);
 CURLcode Curl_parse_login_details(const char *login, const size_t len,
                                   char **userp, char **passwdp,
@@ -69,40 +67,18 @@ CURLcode Curl_conn_meta_set(struct connectdata *conn, const char *key,
 void Curl_conn_meta_remove(struct connectdata *conn, const char *key);
 void *Curl_conn_meta_get(struct connectdata *conn, const char *key);
 
-/* Get protocol handler for a URI scheme
- * @param scheme URI scheme, case-insensitive
- * @return NULL of handler not found
- */
-const struct Curl_scheme *Curl_get_scheme(const char *scheme);
-const struct Curl_scheme *Curl_getn_scheme(const char *scheme, size_t len);
+/* Get an admin handle for internal operations from the given
+ * easy handle, if possible. The admin handle inherits certain
+ * properties from `data`. If no admin handle is available (not multi
+ * or share attached), the easy handle itself is returned. */
+struct Curl_easy *Curl_get_admin(struct Curl_easy *data);
 
 #define CURL_DEFAULT_PROXY_PORT 1080 /* default proxy port unless specified */
 #define CURL_DEFAULT_HTTPS_PROXY_PORT 443 /* default https proxy port unless
                                              specified */
 
-/**
- * Return TRUE iff the given connection is considered dead.
- */
-bool Curl_conn_seems_dead(struct connectdata *conn,
-                          struct Curl_easy *data);
-
-/**
- * Perform upkeep operations on the connection.
- */
-CURLcode Curl_conn_upkeep(struct Curl_easy *data,
-                          struct connectdata *conn);
-
-/**
- * Always eval all arguments, return the first result != CURLE_OK.
- * A non-short-circuit evaluation.
- */
-CURLcode Curl_1st_err(CURLcode r1, CURLcode r2);
-
-/**
- * Always eval all arguments, return the first
- * result != (CURLE_OK|CURLE_AGAIN) or `r1`.
- * A non-short-circuit evaluation.
- */
+/* Always eval all arguments, return the first
+ * result != (CURLE_OK | CURLE_AGAIN) or `r1`. */
 CURLcode Curl_1st_fatal(CURLcode r1, CURLcode r2);
 
 #if defined(USE_HTTP2) || defined(USE_HTTP3)

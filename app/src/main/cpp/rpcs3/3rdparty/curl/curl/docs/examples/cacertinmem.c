@@ -34,22 +34,13 @@
 
 #include <curl/curl.h>
 
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic ignored "-Woverlength-strings"
-#endif
-/* Silence warning when calling sk_X509_INFO_pop_free() */
-#if defined(__clang__) && __clang_major__ >= 16
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcast-function-type-strict"
-#endif
-
 #if defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
 typedef size_t ossl_valsize_t;
 #else
 typedef int ossl_valsize_t;
 #endif
 
-static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *stream)
+static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *stream)
 {
   fwrite(ptr, size, nmemb, (FILE *)stream);
   return nmemb * size;
@@ -116,7 +107,14 @@ static CURLcode sslctx_function(CURL *curl, void *sslctx, void *pointer)
     }
   }
 
+#if defined(__clang__) && __clang_major__ >= 16
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcast-function-type-strict"
+#endif
   sk_X509_INFO_pop_free(inf, X509_INFO_free);
+#if defined(__clang__) && __clang_major__ >= 16
+#pragma clang diagnostic pop
+#endif
 
   result = CURLE_OK;
 
@@ -157,7 +155,7 @@ int main(void)
     curl_easy_setopt(curl, CURLOPT_CAINFO, NULL);
     curl_easy_setopt(curl, CURLOPT_CAPATH, NULL);
 
-    /* first try: retrieve page without ca certificates -> should fail
+    /* first try: retrieve page without CA certificates -> should fail
      * unless libcurl was built --with-ca-fallback enabled at build-time
      */
     result = curl_easy_perform(curl);
@@ -168,10 +166,10 @@ int main(void)
 
     /* use a fresh connection (optional) this option seriously impacts
      * performance of multiple transfers but it is necessary order to
-     * demonstrate this example. recall that the ssl ctx callback is only
+     * demonstrate this example. recall that the SSL ctx callback is only
      * called _before_ an SSL connection is established, therefore it does not
      * affect existing verified SSL connections already in the connection
-     * cache associated with this handle. normally you would set the ssl ctx
+     * cache associated with this handle. normally you would set the SSL ctx
      * function before making any transfers, and not use this option.
      */
     curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1L);

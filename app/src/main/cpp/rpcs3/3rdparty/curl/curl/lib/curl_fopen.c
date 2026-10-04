@@ -30,25 +30,24 @@
 #include "rand.h"
 #include "curl_fopen.h"
 
-/*
-  The dirslash() function breaks a null-terminated pathname string into
-  directory and filename components then returns the directory component up
-  to, *AND INCLUDING*, a final '/'. If there is no directory in the path,
-  this instead returns a "" string.
+/* The dirslash() function breaks a null-terminated pathname string into
+   directory and filename components then returns the directory component up
+   to, *AND INCLUDING*, a final '/'. If there is no directory in the path,
+   this instead returns a "" string.
 
-  This function returns a pointer to malloc'ed memory.
+   This function returns a pointer to malloc'ed memory.
 
-  The input path to this function is expected to have a filename part.
-*/
+   The input path to this function is expected to have a filename part.
+ */
 
 #ifdef _WIN32
-#define PATHSEP "\\"
+#define PATHSEP   "\\"
 #define IS_SEP(x) (((x) == '/') || ((x) == '\\'))
 #elif defined(MSDOS) || defined(OS2)
-#define PATHSEP "\\"
+#define PATHSEP   "\\"
 #define IS_SEP(x) ((x) == '\\')
 #else
-#define PATHSEP "/"
+#define PATHSEP   "/"
 #define IS_SEP(x) ((x) == '/')
 #endif
 
@@ -103,7 +102,14 @@ CURLcode Curl_fopen(struct Curl_easy *data, const char *filename,
     return CURLE_OK;
   }
   curlx_fclose(*fh);
+#ifdef HAVE_GETEUID
+  /* If the existing file is not owned by the user, do not inherit
+   * its permissions at the temp file created below. The permissions
+   * might be unsuitable for holding user private data. */
+  if(sb.st_uid != geteuid())
+    sb.st_mode = 0;
 #endif
+#endif /* !_WIN32 */
   *fh = NULL;
 
   result = Curl_rand_alnum(data, randbuf, sizeof(randbuf));
