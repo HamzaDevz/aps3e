@@ -224,6 +224,9 @@ public class AboutActivity extends AppCompatActivity {
                 + "2.42(2026-08-27)\n"
                 + " *即时存读档\n"
                 + " *部分修正与完善\n"
+                + "2.43(2026-10-05)\n"
+                + " *更新RPCS3版本\n"
+                + " *实现spuasmjit(还不完善)\n"
                 + " \n";
 
         return log;
