@@ -1,0 +1,80 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+android {
+    namespace 'aenu.aps3e'
+    compileSdk 35
+
+    defaultConfig {
+        // Odin 3 fork: its own package, installed next to aPS3e and RPCSX without replacing them
+        applicationId "aenu.aps3e.odin3"
+
+        minSdk 28
+        targetSdk 34
+        versionCode 243
+        versionName "2.43-odin3"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake {
+                abiFilters 'arm64-v8a'
+                // Upstream's RelWithDebInfo optimisation (-O2) without its debug info (the NDK toolchain adds -g,
+                // -g0 comes after it): LLVM with -g takes several GB
+                cppFlags '-g0'
+                cFlags '-g0'
+                arguments '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG',
+                        '-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG'
+            }
+        }
+
+        sourceSets{
+            main {
+                //jniLibs.srcDirs = ['src/main/lib']
+            }
+        }
+    }
+
+    ndkVersion '28.2.13676358'
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+
+
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.31.5'
+        }
+    }
+
+    packaging{
+        jniLibs.useLegacyPackaging = true
+    }
+}
+
+dependencies {
+
+    implementation libs.appcompat
+    implementation libs.material
+    implementation libs.activity
+    implementation libs.constraintlayout
+    implementation libs.preference
+    testImplementation libs.junit
+    androidTestImplementation libs.ext.junit
+    androidTestImplementation libs.espresso.core
+}

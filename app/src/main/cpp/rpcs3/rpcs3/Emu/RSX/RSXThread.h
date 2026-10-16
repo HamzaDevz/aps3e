@@ -188,6 +188,7 @@ namespace rsx
 		void recover_fifo(std::source_location src_loc = std::source_location::current());
 
 		static void fifo_wake_delay(u64 div = 1);
+		void fifo_idle_wait();
 		u32 get_fifo_cmd() const;
 
 		void dump_regs(std::string&, std::any& custom_data) const override;

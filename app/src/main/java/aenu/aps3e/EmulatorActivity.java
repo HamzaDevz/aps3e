@@ -170,8 +170,14 @@ public class EmulatorActivity extends AppCompatActivity {
 			File custom_cfg = Application.get_custom_cfg_file(meta_info.serial);
 			if (custom_cfg.exists())
 				Emulator.get.set_env("APS3E_CUSTOM_CONFIG_YAML_PATH", custom_cfg.getAbsolutePath());
+			// Odin 3 fork: a game without a per-game config boots with its database config (RPCS3's settings for
+			// known games, God of War Ascension hangs after its intro without them), as desktop RPCS3 does; upstream
+			// only applies it from the per-game settings screen
+			Emulator.get.set_env("APS3E_DATABASE_CONFIG", custom_cfg.exists() ? "" : database_config(meta_info.serial));
 
-			boolean enable_log = getSharedPreferences("debug", MODE_PRIVATE).getBoolean("enable_log", false);
+			// Odin 3 fork: the bench turns the RPCS3 log on per launch with --ez enable_log true
+			boolean enable_log = getSharedPreferences("debug", MODE_PRIVATE).getBoolean("enable_log", false)
+					|| getIntent().getBooleanExtra("enable_log", false);
 			Emulator.get.set_env("APS3E_ENABLE_LOG", Boolean.toString(enable_log));
 
 			String savestate_path=getIntent().getStringExtra(EXTRA_SAVESTATE_PATH);
@@ -202,6 +208,16 @@ public class EmulatorActivity extends AppCompatActivity {
 					.beginTransaction()
 					.add(R.id.fragment_emulator,emulator_fragment,FRAGMENT_TAG_MAIN)
 					.commit();
+		}
+	}
+
+	// The game's entry of database_config.json, a YAML fragment, or "" when it has none
+	String database_config(String serial) {
+		try {
+			org.json.JSONObject db = new org.json.JSONObject(new String(Utils.load_assets_file(this, "database_config.json")));
+			return db.has(serial) ? db.getJSONObject(serial).getString("config") : "";
+		} catch (Exception e) {
+			return "";
 		}
 	}
 

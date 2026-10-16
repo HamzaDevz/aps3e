@@ -3030,6 +3030,24 @@ namespace rsx
 		return result;
 	}
 
+	void thread::fifo_idle_wait()
+	{
+		// A game waiting on the PPU leaves the FIFO empty or on a jump-to-self. Yielding there kept a prime core
+		// at 100% on Android (nothing else is runnable on it), so past the idle threshold RSX sleeps instead.
+		const u64 slice = g_cfg.video.rsx_idle_sleep;
+
+		if (!slice || get_system_time() - performance_counters.FIFO_idle_timestamp < slice)
+		{
+			std::this_thread::yield();
+			return;
+		}
+
+		thread_ctrl::wait_for(slice, false);
+
+		// Run the local tasks (deferred flips, interrupts) on the next iteration instead of every 64th
+		m_eng_interrupt_mask |= rsx::backend_interrupt;
+	}
+
 	void thread::fifo_wake_delay(u64 div)
 	{
 		// TODO: Nanoseconds accuracy

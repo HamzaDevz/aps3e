@@ -9,6 +9,7 @@
 #include "vkutils/data_heap.h"
 #include "vkutils/descriptors.h"
 #include "vkutils/graphics_pipeline_state.hpp"
+#include "vkutils/image.h"
 
 #include "Emu/IdManager.h"
 

@@ -1,0 +1,23 @@
+# First look at God of War Ascension: boot, PPU/SPU compilation and what follows, a screenshot every minute
+iso God of War - Ascension (USA) (En,Fr,Es,Pt).iso
+serial BCUS98232
+measure boot
+wait 90
+end
+shot s1
+measure m2
+wait 60
+end
+shot s2
+measure m3
+wait 60
+end
+shot s3
+measure m4
+wait 60
+end
+shot s4
+measure m5
+wait 60
+end
+shot s5

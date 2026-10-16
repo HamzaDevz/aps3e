@@ -1,0 +1,19 @@
+# God of War Ascension: boot (SPU cache, intro videos), the brightness screen reached around 40 s (a fixed scene
+# the game keeps rendering), then what follows Continue; every build measured with the same lengths
+iso God of War - Ascension (USA) (En,Fr,Es,Pt).iso
+serial BCUS98232
+measure boot
+wait 60
+end
+shot s1
+measure static
+wait 90
+end
+shot s2
+btn cross 200
+wait 15
+shot s3
+measure next
+wait 60
+end
+shot s4

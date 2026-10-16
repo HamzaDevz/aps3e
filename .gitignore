@@ -5,7 +5,7 @@ o/**
 .idea/
 local.properties
 
-app/build.gradle
+
 
 aps3e.keystore
 aps3e.jks

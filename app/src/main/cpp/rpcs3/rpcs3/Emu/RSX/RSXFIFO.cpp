@@ -669,7 +669,7 @@ namespace rsx
 				}
 				else
 				{
-					std::this_thread::yield();
+					fifo_idle_wait();
 				}
 
 				return;
@@ -701,6 +701,10 @@ namespace rsx
 					{
 						performance_counters.FIFO_idle_timestamp = get_system_time();
 						sync_point_request.release(true);
+					}
+					else
+					{
+						fifo_idle_wait();
 					}
 
 					performance_counters.state = FIFO::state::spinning;

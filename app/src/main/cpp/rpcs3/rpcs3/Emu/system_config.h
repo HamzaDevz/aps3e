@@ -181,6 +181,8 @@ struct cfg_root : cfg::node
 		cfg::_int<0, 16> shader_compiler_threads_count{ this, "Shader Compiler Threads", 0 };
 		cfg::_int<0, 30000000> driver_recovery_timeout{ this, "Driver Recovery Timeout", 1000000, true };
 		cfg::uint<0, 16667> driver_wakeup_delay{ this, "Driver Wake-Up Delay", 0, true };
+		// Odin 3 fork: once the FIFO has idled this long (us), RSX sleeps in slices of it instead of spinning (0 = spin)
+		cfg::uint<0, 5000> rsx_idle_sleep{ this, "RSX Idle Sleep", 100, true };
 		cfg::_int<1, 6000> vblank_rate{ this, "Vblank Rate", 60, true }; // Changing this from 60 may affect game speed in unexpected ways
 		cfg::_bool vblank_ntsc{ this, "Vblank NTSC Fixup", false, true };
 		cfg::_bool decr_memory_layout{ this, "DECR memory layout", false}; // Force enable increased allowed main memory range as DECR console

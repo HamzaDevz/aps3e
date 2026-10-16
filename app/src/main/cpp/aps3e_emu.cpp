@@ -574,7 +574,9 @@ namespace ae{
         };
         callbacks.get_database_config = [](const std::string&) -> std::string {
             PRE("get_database_config");
-            return "";
+            // Odin 3 fork: EmulatorActivity passes the game's database config when it has no per-game config
+            const char* db_config = getenv("APS3E_DATABASE_CONFIG");
+            return db_config ? db_config : "";
         };
         return callbacks;
     }
