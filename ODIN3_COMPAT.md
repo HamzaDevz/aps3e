@@ -19,13 +19,15 @@ Autres émulateurs : [Eden (Switch)](https://github.com/HamzaDevz/eden/blob/odin
 
 Paquet `aenu.aps3e.odin3` (version 2.43-odin3), installé à côté de l'officiel `aenu.aps3e`. Banc adb dans `tools/odin3/` : `run.sh <nom> [Section/Clé=valeur]` avec un scénario, sous le verrou partagé de la console ; fps par SurfaceFlinger (présentations, pas images du jeu), puissance et températures par `poll.sh`, captures toutes les 10 s et journal RPCS3 par `probe.sh`.
 
+Banc VM : odin3-lab `emus/aps3e`, le cœur RPCS3 de l'APK compilé pour linux-aarch64 (mêmes recompilateurs PPU/SPU LLVM, en-têtes Vulkan du NDK) sur lavapipe au profil Vulkan de l'Odin (RPCS3 y voit l'Adreno 830), avec la config, le firmware et les caches de l'Odin ; validé contre l'Odin le 2026-10-22 sur God of War: Ascension (mêmes images de l'intro à 61-70 dB, même blocage).
+
 La page « Game Compatibility Table » de l'app reprend la liste de RPCS3 sur PC (`app/src/main/assets/compatibility_table.json`), pas nos tests : la nôtre est ici.
 
 ## Jeux
 
 | Jeu | Statut | Vu jusqu'à | Mesure | Notes | Testé le | Build |
 |---|---|---|---|---|---|---|
-| God of War: Ascension (USA) `BCUS98232` | 🔴 Ne marche pas | écran noir après l'intro | | correctif (config de la base RPCS3 appliquée au boot + RSX Idle Sleep 100 µs) commité mais jamais lancé sur l'Odin ; sur l'officiel avec la config recommandée : écran de luminosité atteint, 47-56 fps, 14-20 W, CPU 104-105 °C (thread RSX à 97 %) | 2026-10-17 | builds avant 719f52bba |
+| God of War: Ascension (USA) `BCUS98232` | 🔴 Ne marche pas | logo Santa Monica, puis écran noir | caches PPU/SPU chargés en 11,5 s, intro à 60 fps (présentations), puis 30 présentations/s d'un écran noir | avec le correctif de 719f52bba : avertissement, « Sony Computer Entertainment presents », logo Santa Monica, puis écran noir définitif, RSX bloqué (`nv406e::semaphore_acquire` expiré sur 0x50300510, 24,6 s après le début du jeu) ; même blocage, mêmes images dans la VM odin3-lab (61-70 dB contre l'Odin) ; 2 essais sur l'Odin, identiques ; sur l'officiel avec la config recommandée (2026-10-17) : écran de luminosité atteint, 47-56 fps, 14-20 W, CPU 104-105 °C (thread RSX à 97 %) | 2026-10-22 | 31ad98f85 |
 | God of War: Ascension (EU) `BCES01741` | ⚪ Non testé | | | | | |
 | Kingdom Hearts HD 2.5 ReMIX | ⚪ Non testé | | | | | |
 | Metal Gear Solid 4 | ⚪ Non testé | | | | | |
