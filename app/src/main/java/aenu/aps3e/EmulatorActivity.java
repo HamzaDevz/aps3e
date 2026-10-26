@@ -293,6 +293,23 @@ public class EmulatorActivity extends AppCompatActivity {
 	}
 
 	@Override
+	protected void onNewIntent(Intent intent) {
+		super.onNewIntent(intent);
+		//A frontend picking another game while this one runs: restart on it
+		if (!launch_target(getIntent()).equals(launch_target(intent))) {
+			RelaunchActivity.relaunch(this, intent);
+			finish();
+		}
+	}
+
+	static String launch_target(Intent intent) {
+		Emulator.MetaInfo meta = (Emulator.MetaInfo) intent.getSerializableExtra("meta_info");
+		if (meta != null)
+			return meta.eboot_path + "|" + meta.iso_uri;
+		return intent.getStringExtra(EXTRA_ISO_URI) + "|" + intent.getStringExtra(EXTRA_GAME_DIR);
+	}
+
+	@Override
 	protected void onDestroy() {
 		super.onDestroy();
 		System.exit(0);

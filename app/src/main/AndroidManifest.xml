@@ -82,6 +82,12 @@
 				<category android:name="android.intent.category.DEFAULT" />
 			</intent-filter>
 		</activity>
+		<activity android:name="aenu.aps3e.RelaunchActivity"
+			android:theme="@android:style/Theme.Translucent.NoTitleBar"
+			android:taskAffinity=""
+			android:excludeFromRecents="true"
+			android:noHistory="true"
+			android:exported="false"/>
 		<activity android:name="aenu.aps3e.EmulatorSettings"
 			android:exported="false"
 			android:label="@string/settings"/>
