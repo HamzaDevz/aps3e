@@ -1054,10 +1054,7 @@ public class MainActivity extends AppCompatActivity {
 				Utils.copy_file(Application.get_default_config_file(),config_yml);
 		}
 
-		File patch_yml=Application.get_patch_yml_file();
-		if(!Application.get_patch_yml_file().exists()){
-			Utils.copy_file(Application.get_patch_yml_file(),patch_yml);
-		}
+		Emulator.PatchManager.install_patches(this);
 		
 		/*File nomedia=new File(Environment.getExternalStorageDirectory(),"aps3e/.nomedia");
 		try{

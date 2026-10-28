@@ -259,6 +259,44 @@ public class Emulator extends aenu.emulator.Emulator
 			}
 		}
 
+		// Odin 3 fork: patches on until the player sets them in the patch manager. God of War Ascension's SPU MLAA never
+		// releases the RSX label its frames wait on (black screen after the Santa Monica logo): RPCS3's fix for it
+		static final String[][] DEFAULT_PATCHES = {
+				{"SPU-7cd211ff1cbd33163eb0711440dccbb3c1dbcf6c", "Disable SPU MLAA - God of War: Ascension"},
+				{"SPU-1549476fe258150ff9f902229ffaed69a932a9c1", "Disable SPU MLAA - God of War: Ascension"},
+				{"SPU-77ce25dab2a5ca1d96038cc3dc57c50c705ce38c", "Disable SPU MLAA - God of War: Ascension"},
+		};
+
+		// Odin 3 fork: the APK's patch.yml in config/patches, where the core and the patch manager read it (upstream
+		// never installs it: MainActivity copied the file onto itself), and DEFAULT_PATCHES in patch_config.yml
+		static void install_patches(Context ctx) {
+			try {
+				ByteArrayOutputStream asset = new ByteArrayOutputStream();
+				try (InputStream in = ctx.getAssets().open("patch.yml")) {
+					byte[] buf = new byte[1 << 16];
+					for (int n; (n = in.read(buf)) > 0; )
+						asset.write(buf, 0, n);
+				}
+				File patch_yml = Application.get_patch_yml_file();
+				if (patch_yml.length() != asset.size())
+					try (FileOutputStream out = new FileOutputStream(patch_yml)) {
+						asset.writeTo(out);
+					}
+
+				File config_file = Application.get_patch_config_yml_file();
+				if (!config_file.exists()) config_file.createNewFile();
+				aenu.emulator.Emulator.Config config = aenu.emulator.Emulator.Config.open_config_file(config_file.getAbsolutePath());
+				for (String[] patch : DEFAULT_PATCHES) {
+					String enabled = String.join("|", patch[0], patch[1], k_all, k_all, k_all, k_enabled);
+					if (config.load_config_entry(enabled) == null)
+						config.save_config_entry(enabled, "true");
+				}
+				config.close_config_file();
+			} catch (Exception e) {
+				Log.w("aps3e_java", "install_patches: " + e);
+			}
+		}
+
 		public static List<PatchManager.PatchInfo> parseAllPatches(String patchYmlPath) {
 			List<PatchManager.PatchInfo> patches = new ArrayList<>();
 			String patchYmlStr=Utils.read_file_as_str(new File(patchYmlPath));

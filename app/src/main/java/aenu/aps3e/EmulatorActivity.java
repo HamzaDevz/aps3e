@@ -174,6 +174,8 @@ public class EmulatorActivity extends AppCompatActivity {
 			// known games, God of War Ascension hangs after its intro without them), as desktop RPCS3 does; upstream
 			// only applies it from the per-game settings screen
 			Emulator.get.set_env("APS3E_DATABASE_CONFIG", custom_cfg.exists() ? "" : database_config(meta_info.serial));
+			// Odin 3 fork: a frontend starts games here without MainActivity
+			Emulator.PatchManager.install_patches(this);
 
 			// Odin 3 fork: the bench turns the RPCS3 log on per launch with --ez enable_log true
 			boolean enable_log = getSharedPreferences("debug", MODE_PRIVATE).getBoolean("enable_log", false)
